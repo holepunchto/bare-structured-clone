@@ -2,6 +2,7 @@ const c = require('compact-encoding')
 const bitfield = require('compact-encoding-bitfield')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
+const binding = require('./binding')
 
 const t = constants.type
 
@@ -68,41 +69,94 @@ exports.serialize = function serialize (value, forStorage = false, references = 
     return { type: t.REGEXP, source: value.source, flags: value.flags }
   }
 
-  let serialized
+  if (value instanceof URL) {
+    return { type: t.URL, href: value.href }
+  }
 
-  if (value instanceof Map) {
-    serialized = { type: t.MAP, id: 0, data: [] }
-  } else if (value instanceof Set) {
-    serialized = { type: t.SET, id: 0, data: [] }
-  } else if (value instanceof Error) {
+  if (value instanceof Buffer) {
+    if (value.detached) {
+      throw errors.UNSUPPORTED_TYPE('Detached Buffer cannot be serialized')
+    }
+
+    return { type: t.BUFFER, data: Buffer.from(value) }
+  }
+
+  if (value instanceof ArrayBuffer) {
+    if (value.detached) {
+      throw errors.UNSUPPORTED_TYPE('Detached ArrayBuffer cannot be serialized')
+    }
+
+    const data = Buffer.allocUnsafe(value.byteLength)
+
+    data.set(Buffer.from(value))
+
+    if (value.resizable) {
+      return { type: t.RESIZABLEARRAYBUFFER, data, maxByteLength: value.maxByteLength }
+    }
+
+    return { type: t.ARRAYBUFFER, data }
+  }
+
+  if (value instanceof SharedArrayBuffer) {
+    if (forStorage) {
+      throw errors.UNSUPPORTED_TYPE('SharedArrayBuffer cannot be serialized to storage')
+    }
+
+    const backingStore = Buffer.from(binding.getSharedArrayBufferBackingStore(value))
+
+    if (value.growable) {
+      return { type: t.GROWABLESHAREDARRAYBUFFER, backingStore, maxByteLength: value.maxByteLength }
+    }
+
+    return { type: t.SHAREDARRAYBUFFER, backingStore }
+  }
+
+  if (value instanceof Error) {
     let name
 
     switch (value.name) {
       case 'EvalError':
+        name = t.error.EVAL
+        break
       case 'RangeError':
+        name = t.error.RANGE
+        break
       case 'ReferenceError':
+        name = t.error.REFERENCE
+        break
       case 'SyntaxError':
+        name = t.error.SYNTAX
+        break
       case 'TypeError':
-        name = value.name
+        name = t.error.TYPE
         break
       default:
-        name = 'Error'
+        name = t.error.NONE
     }
 
-    serialized = { type: t.ERROR, name, message: value.message.toString(), stack: null }
-
-    if (value.stack) {
-      serialized.stack = serialize(value.stack, forStorage, references)
+    return {
+      type: t.ERROR,
+      name,
+      message: value.message.toString(),
+      stack: value.stack ? serialize(value.stack, forStorage, references) : null
     }
+  }
 
-    return serialized
-  } else if (
+  if (
     value instanceof Promise ||
     value instanceof WeakMap ||
     value instanceof WeakSet ||
     value instanceof WeakRef
   ) {
     throw errors.UNSUPPORTED_TYPE(`${value.constructor.name} cannot be serialized`)
+  }
+
+  let serialized
+
+  if (value instanceof Map) {
+    serialized = { type: t.MAP, id: 0, data: [] }
+  } else if (value instanceof Set) {
+    serialized = { type: t.SET, id: 0, data: [] }
   } else if (Array.isArray(value)) {
     serialized = { type: t.ARRAY, id: 0, length: value.length, properties: [] }
   } else {
@@ -166,29 +220,48 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
 
     case t.DATE: return new Date(serialized.value)
     case t.REGEXP: return new RegExp(serialized.source, serialized.flags)
+    case t.URL: return new URL(serialized.href)
 
-    case t.MAP:
-      value = new Map()
-      break
-    case t.SET:
-      value = new Set()
-      break
+    case t.BUFFER:
+      return serialized.data
+
+    case t.ARRAYBUFFER:
+      value = new ArrayBuffer(serialized.data.byteLength)
+
+      Buffer.from(value).set(serialized.data)
+
+      return value
+
+    case t.RESIZABLEARRAYBUFFER:
+      value = new ArrayBuffer(serialized.data.byteLength, { maxByteLength: serialized.maxByteLength })
+
+      Buffer.from(value).set(serialized.data)
+
+      return value
+
+    case t.SHAREDARRAYBUFFER:
+    case t.GROWABLESHAREDARRAYBUFFER:
+      value = binding.createSharedArrayBuffer(serialized.backingStore.buffer)
+
+      serialized.backingStore.fill(0)
+
+      return value
 
     case t.ERROR:
       switch (serialized.name) {
-        case 'EvalError':
+        case t.error.EVAL:
           value = new EvalError(serialized.message)
           break
-        case 'RangeError':
+        case t.error.RANGE:
           value = new RangeError(serialized.message)
           break
-        case 'ReferenceError':
+        case t.error.REFERENCE:
           value = new ReferenceError(serialized.message)
           break
-        case 'SyntaxError':
+        case t.error.SYNTAX:
           value = new SyntaxError(serialized.message)
           break
-        case 'TypeError':
+        case t.error.TYPE:
           value = new TypeError(serialized.message)
           break
         default:
@@ -201,12 +274,26 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
 
       return value
 
+    case t.MAP:
+      value = new Map()
+      break
+    case t.SET:
+      value = new Set()
+      break
     case t.ARRAY:
       value = new Array(serialized.length)
       break
     case t.OBJECT:
       value = {}
       break
+
+    case t.REFERENCE:
+      if (references.has(serialized.id)) value = references.get(serialized.id)
+      else {
+        throw errors.INVALID_REFERENCE(`Object with ID '${serialized.id}' was not found`)
+      }
+
+      return value
   }
 
   if (serialized.id) references.set(serialized.id, value)
@@ -230,6 +317,8 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
         value[entry.key] = deserialize(entry.value, references)
       }
   }
+
+  return value
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserializewithtransfer
@@ -300,6 +389,9 @@ const value = {
         c.string.preencode(state, m.source)
         c.string.preencode(state, m.flags)
         break
+      case t.URL:
+        c.string.preencode(state, m.href)
+        break
       case t.MAP:
         id.preencode(state, m.id)
         pairs.preencode(state, m.data)
@@ -337,6 +429,9 @@ const value = {
       case t.REGEXP:
         c.string.encode(state, m.source)
         c.string.encode(state, m.flags)
+        break
+      case t.URL:
+        c.string.encode(state, m.href)
         break
       case t.MAP:
         id.encode(state, m.id)
@@ -380,6 +475,10 @@ const value = {
         type,
         source: c.string.decode(state),
         flags: c.string.decode(state)
+      }
+      case t.URL: return {
+        type,
+        href: c.string.decode(state)
       }
       case t.MAP: return {
         type,
