@@ -241,7 +241,7 @@ test('sharedarraybuffer', (t) => {
   const serialized = serialize(buf)
 
   t.is(serialized.type, type.SHAREDARRAYBUFFER)
-  t.ok(serialized.backingStore instanceof Buffer)
+  t.ok(serialized.backingStore instanceof ArrayBuffer)
 
   t.alike(deserialize(serialized), buf)
 })
@@ -254,7 +254,7 @@ test('growable sharedarraybuffer', (t) => {
   const serialized = serialize(buf)
 
   t.is(serialized.type, type.GROWABLESHAREDARRAYBUFFER)
-  t.ok(serialized.backingStore instanceof Buffer)
+  t.ok(serialized.backingStore instanceof ArrayBuffer)
 
   t.alike(deserialize(serialized), buf)
 })
@@ -299,7 +299,7 @@ test('transfer arraybuffer', (t) => {
 
   t.is(transfer.type, type.ARRAYBUFFER)
   t.is(transfer.id, 1)
-  t.ok(transfer.backingStore instanceof Buffer)
+  t.ok(transfer.backingStore instanceof ArrayBuffer)
 
   buf = deserializeWithTransfer(serialized)
 

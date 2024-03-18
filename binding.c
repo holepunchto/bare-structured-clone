@@ -129,6 +129,79 @@ bare_structured_clone_detach_arraybuffer (js_env_t *env, js_callback_info_t *inf
 }
 
 static js_value_t *
+bare_structured_clone_is_external (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  bool is_external;
+  err = js_is_external(env, argv[0], &is_external);
+  assert(err == 0);
+
+  js_value_t *result;
+  err = js_get_boolean(env, is_external, &result);
+  assert(err == 0);
+
+  return result;
+}
+
+static js_value_t *
+bare_structured_clone_get_external (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  void *data;
+  err = js_get_value_external(env, argv[0], &data);
+  assert(err == 0);
+
+  js_value_t *result;
+
+  uintptr_t *handle;
+  err = js_create_arraybuffer(env, sizeof(uintptr_t), (void **) &handle, &result);
+  assert(err == 0);
+
+  *handle = (uintptr_t) data;
+
+  return result;
+}
+
+static js_value_t *
+bare_structured_clone_create_external (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  void **data;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &data, NULL);
+  assert(err == 0);
+
+  js_value_t *result;
+  err = js_create_external(env, *data, NULL, NULL, &result);
+  assert(err == 0);
+
+  return result;
+}
+
+static js_value_t *
 init (js_env_t *env, js_value_t *exports) {
   int err;
 
@@ -146,6 +219,9 @@ init (js_env_t *env, js_value_t *exports) {
   V("createArrayBuffer", bare_structured_clone_create_arraybuffer)
   V("createSharedArrayBuffer", bare_structured_clone_create_sharedarraybuffer)
   V("detachArrayBuffer", bare_structured_clone_detach_arraybuffer)
+  V("isExternal", bare_structured_clone_is_external)
+  V("getExternal", bare_structured_clone_get_external)
+  V("createExternal", bare_structured_clone_create_external)
 #undef V
 
   return exports;

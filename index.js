@@ -98,7 +98,7 @@ exports.serialize = function serialize (value, forStorage = false, references = 
       throw errors.UNSERIALIZABLE_TYPE('SharedArrayBuffer cannot be serialized to storage')
     }
 
-    const backingStore = Buffer.from(binding.getSharedArrayBufferBackingStore(value))
+    const backingStore = binding.getSharedArrayBufferBackingStore(value)
 
     if (value.growable) {
       return { type: t.GROWABLESHAREDARRAYBUFFER, backingStore, maxByteLength: value.maxByteLength }
@@ -170,6 +170,10 @@ exports.serialize = function serialize (value, forStorage = false, references = 
       message: value.message.toString(),
       stack: value.stack ? serialize(value.stack, forStorage, references) : null
     }
+  }
+
+  if (binding.isExternal(value)) {
+    return { type: t.EXTERNAL, pointer: binding.getExternal(value) }
   }
 
   if (
@@ -259,7 +263,7 @@ exports.serializeWithTransfer = function serializeWithTransfer (value, transferL
         throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
       }
 
-      const backingStore = Buffer.from(binding.getSharedArrayBufferBackingStore(transferable))
+      const backingStore = binding.getSharedArrayBufferBackingStore(transferable)
 
       const id = references.id(transferable)
 
@@ -325,9 +329,9 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
 
     case t.SHAREDARRAYBUFFER:
     case t.GROWABLESHAREDARRAYBUFFER:
-      value = binding.createSharedArrayBuffer(serialized.backingStore.buffer)
+      value = binding.createSharedArrayBuffer(serialized.backingStore)
 
-      serialized.backingStore.fill(0)
+      Buffer.from(serialized.backingStore).fill(0)
 
       return value
 
@@ -392,6 +396,9 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
 
       return value
 
+    case t.EXTERNAL:
+      return binding.createExternal(serialized.pointer)
+
     case t.MAP:
       value = new Map()
       break
@@ -447,7 +454,7 @@ exports.deserializeWithTransfer = function deserializeWithTransfer (serialized) 
     switch (transfer.type) {
       case t.ARRAYBUFFER:
       case t.RESIZABLEARRAYBUFFER:
-        references.set(transfer.id, binding.createArrayBuffer(transfer.backingStore.buffer))
+        references.set(transfer.id, binding.createArrayBuffer(transfer.backingStore))
     }
   }
 
