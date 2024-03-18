@@ -56,9 +56,9 @@ exports.serialize = function serialize (value, forStorage = false, references = 
     case 'bigint': return { type: t.BIGINT, value }
     case 'string': return { type: t.STRING, value }
 
-    case 'symbol': throw errors.UNSUPPORTED_TYPE(`Symbol '${value.description}' cannot be serialized`)
+    case 'symbol': throw errors.UNSERIALIZABLE_TYPE(`Symbol '${value.description}' cannot be serialized`)
 
-    case 'function': throw errors.UNSUPPORTED_TYPE(`Function '${value.name}' cannot be serialized`)
+    case 'function': throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
   }
 
   if (value instanceof Date) {
@@ -75,31 +75,27 @@ exports.serialize = function serialize (value, forStorage = false, references = 
 
   if (value instanceof Buffer) {
     if (value.detached) {
-      throw errors.UNSUPPORTED_TYPE('Detached Buffer cannot be serialized')
+      throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
     }
 
-    return { type: t.BUFFER, data: Buffer.from(value) }
+    return { type: t.BUFFER, owned: false, data: value }
   }
 
   if (value instanceof ArrayBuffer) {
     if (value.detached) {
-      throw errors.UNSUPPORTED_TYPE('Detached ArrayBuffer cannot be serialized')
+      throw errors.UNSERIALIZABLE_TYPE('Detached ArrayBuffer cannot be serialized')
     }
-
-    const data = Buffer.allocUnsafe(value.byteLength)
-
-    data.set(Buffer.from(value))
 
     if (value.resizable) {
-      return { type: t.RESIZABLEARRAYBUFFER, data, maxByteLength: value.maxByteLength }
+      return { type: t.RESIZABLEARRAYBUFFER, owned: false, data: value, maxByteLength: value.maxByteLength }
     }
 
-    return { type: t.ARRAYBUFFER, data }
+    return { type: t.ARRAYBUFFER, owned: false, data: value }
   }
 
   if (value instanceof SharedArrayBuffer) {
     if (forStorage) {
-      throw errors.UNSUPPORTED_TYPE('SharedArrayBuffer cannot be serialized to storage')
+      throw errors.UNSERIALIZABLE_TYPE('SharedArrayBuffer cannot be serialized to storage')
     }
 
     const backingStore = Buffer.from(binding.getSharedArrayBufferBackingStore(value))
@@ -148,7 +144,7 @@ exports.serialize = function serialize (value, forStorage = false, references = 
     value instanceof WeakSet ||
     value instanceof WeakRef
   ) {
-    throw errors.UNSUPPORTED_TYPE(`${value.constructor.name} cannot be serialized`)
+    throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
   }
 
   let serialized
@@ -201,7 +197,57 @@ exports.serialize = function serialize (value, forStorage = false, references = 
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializewithtransfer
 exports.serializeWithTransfer = function serializeWithTransfer (value, transferList) {
+  const references = new SerializeRefMap()
 
+  for (const transferable of transferList) {
+    if (transferable instanceof ArrayBuffer) {
+      if (transferable.detached) {
+        throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
+      }
+
+      if (references.has(transferable)) {
+        throw errors.ALREADY_TRANSFERRED('ArrayBuffer has already been transferred')
+      }
+
+      references.set(transferable, null)
+    } else {
+      throw errors.UNTRANSFERABLE_TYPE('Value cannot be transferred')
+    }
+  }
+
+  const serialized = exports.serialize(value, false, references)
+
+  const transfers = []
+
+  for (const transferable of transferList) {
+    if (transferable instanceof ArrayBuffer) {
+      if (transferable.detached) {
+        throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
+      }
+
+      const backingStore = Buffer.from(binding.getSharedArrayBufferBackingStore(transferable))
+
+      const id = references.id(transferable)
+
+      let reference
+
+      if (value.resizable) {
+        reference = { type: t.RESIZABLEARRAYBUFFER, id, backingStore, maxByteLength: value.maxByteLength }
+      } else {
+        reference = { type: t.ARRAYBUFFER, id, backingStore }
+      }
+
+      transfers.push(reference)
+
+      binding.detachArrayBuffer(transferable)
+    }
+  }
+
+  return {
+    type: t.TRANSFER,
+    value: serialized,
+    transfers
+  }
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserialize
@@ -226,16 +272,20 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
       return serialized.data
 
     case t.ARRAYBUFFER:
+      if (serialized.owned) return serialized.data
+
       value = new ArrayBuffer(serialized.data.byteLength)
 
-      Buffer.from(value).set(serialized.data)
+      Buffer.from(value).set(Buffer.from(serialized.data))
 
       return value
 
     case t.RESIZABLEARRAYBUFFER:
+      if (serialized.owned) return serialized.data
+
       value = new ArrayBuffer(serialized.data.byteLength, { maxByteLength: serialized.maxByteLength })
 
-      Buffer.from(value).set(serialized.data)
+      Buffer.from(value).set(Buffer.from(serialized.data))
 
       return value
 
@@ -323,7 +373,17 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserializewithtransfer
 exports.deserializeWithTransfer = function deserializeWithTransfer (serialized) {
+  const references = new Map()
 
+  for (const transfer of serialized.transfers) {
+    switch (transfer.type) {
+      case t.ARRAYBUFFER:
+      case t.RESIZABLEARRAYBUFFER:
+        references.set(transfer.id, binding.createArrayBuffer(transfer.backingStore.buffer))
+    }
+  }
+
+  return exports.deserialize(serialized.value, references)
 }
 
 const flags = bitfield(0)

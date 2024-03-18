@@ -1,5 +1,5 @@
 const test = require('brittle')
-const { constants, serialize, deserialize } = require('.')
+const { constants, serialize, serializeWithTransfer, deserialize, deserializeWithTransfer } = require('.')
 
 const { type } = constants
 
@@ -193,7 +193,8 @@ test('buffer', (t) => {
 
   t.alike(serialized, {
     type: type.BUFFER,
-    data: Buffer.from([1, 2, 3, 4])
+    owned: false,
+    data: buf
   })
 
   t.alike(deserialize(serialized), buf)
@@ -208,7 +209,8 @@ test('arraybuffer', (t) => {
 
   t.alike(serialized, {
     type: type.ARRAYBUFFER,
-    data: Buffer.from([1, 2, 3, 4])
+    owned: false,
+    data: buf
   })
 
   t.alike(deserialize(serialized), buf)
@@ -223,7 +225,8 @@ test('resizable arraybuffer', (t) => {
 
   t.alike(serialized, {
     type: type.RESIZABLEARRAYBUFFER,
-    data: Buffer.from([1, 2, 3, 4]),
+    owned: false,
+    data: buf,
     maxByteLength: 8
   })
 
@@ -254,4 +257,30 @@ test('growable sharedarraybuffer', (t) => {
   t.ok(serialized.backingStore instanceof Buffer)
 
   t.alike(deserialize(serialized), buf)
+})
+
+test('transfer arraybuffer', (t) => {
+  let buf = new ArrayBuffer(4)
+
+  const serialized = serializeWithTransfer(buf, [buf])
+
+  t.ok(buf.detached)
+
+  t.is(serialized.type, type.TRANSFER)
+  t.is(serialized.transfers.length, 1)
+
+  t.alike(serialized.value, {
+    type: type.REFERENCE,
+    id: 1
+  })
+
+  const transfer = serialized.transfers[0]
+
+  t.is(transfer.type, type.ARRAYBUFFER)
+  t.is(transfer.id, 1)
+  t.ok(transfer.backingStore instanceof Buffer)
+
+  buf = deserializeWithTransfer(serialized)
+
+  t.is(buf.byteLength, 4)
 })

@@ -70,15 +70,15 @@ bare_structured_clone_create_arraybuffer (js_env_t *env, js_callback_info_t *inf
 
   assert(argc == 1);
 
-  js_arraybuffer_backing_store_t *backing_store;
-  err = js_get_arraybuffer_info(env, argv[0], (void **) backing_store, NULL);
+  js_arraybuffer_backing_store_t **backing_store;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, NULL);
   assert(err == 0);
 
   js_value_t *result;
-  err = js_create_arraybuffer_with_backing_store(env, backing_store, NULL, NULL, &result);
+  err = js_create_arraybuffer_with_backing_store(env, *backing_store, NULL, NULL, &result);
   assert(err == 0);
 
-  err = js_release_arraybuffer_backing_store(env, backing_store);
+  err = js_release_arraybuffer_backing_store(env, *backing_store);
   assert(err == 0);
 
   return result;
@@ -111,6 +111,24 @@ bare_structured_clone_create_sharedarraybuffer (js_env_t *env, js_callback_info_
 }
 
 static js_value_t *
+bare_structured_clone_detach_arraybuffer (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  err = js_detach_arraybuffer(env, argv[0]);
+  assert(err == 0);
+
+  return NULL;
+}
+
+static js_value_t *
 init (js_env_t *env, js_value_t *exports) {
   int err;
 
@@ -127,6 +145,7 @@ init (js_env_t *env, js_value_t *exports) {
   V("getSharedArrayBufferBackingStore", bare_structured_clone_get_sharedarraybuffer_backing_store)
   V("createArrayBuffer", bare_structured_clone_create_arraybuffer)
   V("createSharedArrayBuffer", bare_structured_clone_create_sharedarraybuffer)
+  V("detachArrayBuffer", bare_structured_clone_detach_arraybuffer)
 #undef V
 
   return exports;
