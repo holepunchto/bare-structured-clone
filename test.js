@@ -259,6 +259,27 @@ test('growable sharedarraybuffer', (t) => {
   t.alike(deserialize(serialized), buf)
 })
 
+test('uint8array', (t) => {
+  const buf = Uint8Array.from([1, 2, 3, 4])
+
+  const serialized = serialize(buf)
+
+  t.alike(serialized, {
+    type: type.TYPEDARRAY,
+    view: type.typedarray.UINT8ARRAY,
+    buffer: {
+      type: type.ARRAYBUFFER,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: 0,
+    byteLength: 4,
+    length: 4
+  })
+
+  t.alike(deserialize(serialized), buf)
+})
+
 test('transfer arraybuffer', (t) => {
   let buf = new ArrayBuffer(4)
 

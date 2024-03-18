@@ -107,6 +107,40 @@ exports.serialize = function serialize (value, forStorage = false, references = 
     return { type: t.SHAREDARRAYBUFFER, backingStore }
   }
 
+  if (ArrayBuffer.isView(value)) {
+    const buffer = serialize(value.buffer, forStorage, references)
+
+    let view
+
+    if (value instanceof Uint8Array) {
+      view = t.typedarray.UINT8ARRAY
+    } else if (value instanceof Uint8ClampedArray) {
+      view = t.typedarray.UINT8CLAMPEDARRAY
+    } else if (value instanceof Int8Array) {
+      view = t.typedarray.INT8ARRAY
+    } else if (value instanceof Uint16Array) {
+      view = t.typedarray.UINT16ARRAY
+    } else if (value instanceof Int16Array) {
+      view = t.typedarray.INT16ARRAY
+    } else if (value instanceof Uint32Array) {
+      view = t.typedarray.UINT32ARRAY
+    } else if (value instanceof Int32Array) {
+      view = t.typedarray.INT32ARRAY
+    } else if (value instanceof BigUint64Array) {
+      view = t.typedarray.BIGUINT64ARRAY
+    } else if (value instanceof BigInt64Array) {
+      view = t.typedarray.BIGINT64ARRAY
+    } else if (value instanceof Float32Array) {
+      view = t.typedarray.FLOAT32ARRAY
+    } else if (value instanceof Float64Array) {
+      view = t.typedarray.FLOAT64ARRAY
+    } else if (value instanceof DataView) {
+      return { type: t.DATAVIEW, buffer, byteOffset: value.byteOffset, byteLength: value.byteLength }
+    }
+
+    return { type: t.TYPEDARRAY, view, buffer, byteOffset: value.byteOffset, byteLength: value.byteLength, length: value.length }
+  }
+
   if (value instanceof Error) {
     let name
 
@@ -296,6 +330,40 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
       serialized.backingStore.fill(0)
 
       return value
+
+    case t.TYPEDARRAY: {
+      const buffer = deserialize(serialized.buffer)
+
+      switch (serialized.view) {
+        case t.typedarray.UINT8ARRAY:
+          return new Uint8Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.UINT8CLAMPEDARRAY:
+          return new Uint8ClampedArray(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.INT8ARRAY:
+          return new Int8Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.UINT16ARRAY:
+          return new Uint16Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.INT16ARRAY:
+          return new Int16Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.UINT32ARRAY:
+          return new Uint32Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.INT32ARRAY:
+          return new Int32Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.BIGUINT64ARRAY:
+          return new BigUint64Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.BIGINT64ARRAY:
+          return new BigInt64Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.FLOAT32ARRAY:
+          return new Float32Array(buffer, serialized.byteOffset, serialized.length)
+        case t.typedarray.FLOAT64ARRAY:
+          return new Float64Array(buffer, serialized.byteOffset, serialized.length)
+      }
+
+      break
+    }
+
+    case t.DATAVIEW:
+      return new DataView(deserialize(serialized.buffer), serialized.byteOffset, serialized.byteLength)
 
     case t.ERROR:
       switch (serialized.name) {
