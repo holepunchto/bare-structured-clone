@@ -78,7 +78,7 @@ exports.serialize = function serialize (value, forStorage = false, references = 
       throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
     }
 
-    return { type: t.BUFFER, owned: false, data: value }
+    return { type: t.BUFFER, buffer: serialize(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength }
   }
 
   if (value instanceof ArrayBuffer) {
@@ -307,7 +307,7 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
     case t.URL: return new URL(serialized.href)
 
     case t.BUFFER:
-      return serialized.data
+      return Buffer.from(deserialize(serialized.buffer), serialized.byteOffset, serialized.byteLength)
 
     case t.ARRAYBUFFER:
       if (serialized.owned) return serialized.data
@@ -483,7 +483,7 @@ const header = {
   }
 }
 
-const pair = {
+const property = {
   preencode (state, m) {
     c.string.preencode(state, m.key)
     value.preencode(state, m.value)
@@ -500,7 +500,26 @@ const pair = {
   }
 }
 
-const pairs = c.array(pair)
+const properties = c.array(property)
+
+const entry = {
+  preencode (state, m) {
+    value.preencode(state, m.key)
+    value.preencode(state, m.value)
+  },
+  encode (state, m) {
+    value.encode(state, m.key)
+    value.encode(state, m.value)
+  },
+  decode (state) {
+    return {
+      key: value.decode(state),
+      value: value.decode(state)
+    }
+  }
+}
+
+const entries = c.array(entry)
 
 const id = c.uint
 
@@ -527,9 +546,40 @@ const value = {
       case t.URL:
         c.string.preencode(state, m.href)
         break
+      case t.BUFFER:
+        value.preencode(state, m.buffer)
+        c.uint.preencode(state, m.byteOffset)
+        c.uint.preencode(state, m.byteLength)
+        break
+      case t.ARRAYBUFFER:
+        c.arraybuffer.preencode(state, m.data)
+        break
+      case t.RESIZABLEARRAYBUFFER:
+        c.arraybuffer.preencode(state, m.data)
+        c.uint.preencode(state, m.maxByteLength)
+        break
+      case t.SHAREDARRAYBUFFER:
+        c.arraybuffer.preencode(state, m.backingStore)
+        break
+      case t.GROWABLESHAREDARRAYBUFFER:
+        c.arraybuffer.preencode(state, m.backingStore)
+        c.uint.preencode(state, m.maxByteLength)
+        break
+      case t.TYPEDARRAY:
+        c.uint.preencode(state, m.view)
+        value.preencode(state, m.buffer)
+        c.uint.preencode(state, m.byteOffset)
+        c.uint.preencode(state, m.byteLength)
+        c.uint.preencode(state, m.length)
+        break
+      case t.DATAVIEW:
+        value.preencode(state, m.buffer)
+        c.uint.preencode(state, m.byteOffset)
+        c.uint.preencode(state, m.byteLength)
+        break
       case t.MAP:
         id.preencode(state, m.id)
-        pairs.preencode(state, m.data)
+        entries.preencode(state, m.data)
         break
       case t.SET:
         id.preencode(state, m.id)
@@ -538,11 +588,14 @@ const value = {
       case t.ARRAY:
         id.preencode(state, m.id)
         c.uint.preencode(state, m.length)
-        pairs.preencode(state, m.properties)
+        properties.preencode(state, m.properties)
         break
       case t.OBJECT:
         id.preencode(state, m.id)
-        pairs.preencode(state, m.properties)
+        properties.preencode(state, m.properties)
+        break
+      case t.REFERENCE:
+        id.preencode(state, m.id)
         break
     }
   },
@@ -568,9 +621,40 @@ const value = {
       case t.URL:
         c.string.encode(state, m.href)
         break
+      case t.BUFFER:
+        value.encode(state, m.buffer)
+        c.uint.encode(state, m.byteOffset)
+        c.uint.encode(state, m.byteLength)
+        break
+      case t.ARRAYBUFFER:
+        c.arraybuffer.encode(state, m.data)
+        break
+      case t.RESIZABLEARRAYBUFFER:
+        c.arraybuffer.encode(state, m.data)
+        c.uint.encode(state, m.maxByteLength)
+        break
+      case t.SHAREDARRAYBUFFER:
+        c.arraybuffer.encode(state, m.backingStore)
+        break
+      case t.GROWABLESHAREDARRAYBUFFER:
+        c.arraybuffer.encode(state, m.backingStore)
+        c.uint.encode(state, m.maxByteLength)
+        break
+      case t.TYPEDARRAY:
+        c.uint.encode(state, m.view)
+        value.encode(state, m.buffer)
+        c.uint.encode(state, m.byteOffset)
+        c.uint.encode(state, m.byteLength)
+        c.uint.encode(state, m.length)
+        break
+      case t.DATAVIEW:
+        value.encode(state, m.buffer)
+        c.uint.encode(state, m.byteOffset)
+        c.uint.encode(state, m.byteLength)
+        break
       case t.MAP:
         id.encode(state, m.id)
-        pairs.encode(state, m.data)
+        entries.encode(state, m.data)
         break
       case t.SET:
         id.encode(state, m.id)
@@ -579,11 +663,14 @@ const value = {
       case t.ARRAY:
         id.encode(state, m.id)
         c.uint.encode(state, m.length)
-        pairs.encode(state, m.properties)
+        properties.encode(state, m.properties)
         break
       case t.OBJECT:
         id.encode(state, m.id)
-        pairs.encode(state, m.properties)
+        properties.encode(state, m.properties)
+        break
+      case t.REFERENCE:
+        id.encode(state, m.id)
         break
     }
   },
@@ -615,10 +702,50 @@ const value = {
         type,
         href: c.string.decode(state)
       }
+      case t.BUFFER: return {
+        type,
+        buffer: value.decode(state),
+        byteOffset: c.uint.decode(state),
+        byteLength: c.uint.decode(state)
+      }
+      case t.ARRAYBUFFER: return {
+        type,
+        owned: true,
+        data: c.arraybuffer.decode(state)
+      }
+      case t.RESIZABLEARRAYBUFFER: return {
+        type,
+        owned: true,
+        data: c.arraybuffer.decode(state),
+        maxByteLength: c.uint.decode(state)
+      }
+      case t.SHAREDARRAYBUFFER: return {
+        type,
+        backingStore: c.arraybuffer.decode(state)
+      }
+      case t.GROWABLESHAREDARRAYBUFFER: return {
+        type,
+        backingStore: c.arraybuffer.decode(state),
+        maxByteLength: c.uint.decode(state)
+      }
+      case t.TYPEDARRAY: return {
+        type,
+        view: c.uint.decode(state),
+        buffer: value.decode(state),
+        byteOffset: c.uint.decode(state),
+        byteLength: c.uint.decode(state),
+        length: c.uint.decode(state)
+      }
+      case t.DATAVIEW: return {
+        type,
+        buffer: value.decode(state),
+        byteOffset: c.uint.decode(state),
+        byteLength: c.uint.decode(state)
+      }
       case t.MAP: return {
         type,
         id: id.decode(state),
-        data: pairs.decode(state)
+        data: entries.decode(state)
       }
       case t.SET: return {
         type,
@@ -629,12 +756,16 @@ const value = {
         type,
         id: id.decode(state),
         length: c.uint.decode(state),
-        properties: pairs.decode(state)
+        properties: properties.decode(state)
       }
       case t.OBJECT: return {
         type,
         id: id.decode(state),
-        properties: pairs.decode(state)
+        properties: properties.decode(state)
+      }
+      case t.REFERENCE: return {
+        type,
+        id: id.decode(state)
       }
       default: return {
         type

@@ -26,7 +26,7 @@
   },
   "homepage": "https://github.com/holepunchto/bare-structured-clone#readme",
   "dependencies": {
-    "compact-encoding": "^2.13.0",
+    "compact-encoding": "^2.14.0",
     "compact-encoding-bitfield": "^1.0.0"
   },
   "devDependencies": {

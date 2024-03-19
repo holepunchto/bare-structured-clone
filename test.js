@@ -1,47 +1,46 @@
 const test = require('brittle')
-const { constants, serialize, serializeWithTransfer, deserialize, deserializeWithTransfer } = require('.')
+const c = require('compact-encoding')
+const structuredClone = require('.')
 
-const { type } = constants
+const {
+  constants: { type },
+  serialize,
+  serializeWithTransfer,
+  deserialize,
+  deserializeWithTransfer
+} = structuredClone
+
+function clone (t, value, expected) {
+  const serialized = serialize(value)
+  t.alike.coercively(serialized, typeof expected === 'function' ? expected(serialized) : expected, 'serializes as expected')
+
+  const deserialized = deserialize(serialized)
+  t.alike(deserialized, value, 'deserializes as expected')
+
+  const buffer = c.encode(structuredClone, serialize(value))
+  t.ok(buffer instanceof Buffer, 'encodes to a buffer')
+
+  t.alike(deserialize(c.decode(structuredClone, buffer)), value, 'decodes from a buffer')
+}
 
 test('undefined', (t) => {
-  const serialized = serialize(undefined)
-
-  t.alike(serialized, { type: type.UNDEFINED })
-
-  t.is(deserialize(serialized), undefined)
+  clone(t, undefined, { type: type.UNDEFINED })
 })
 
 test('null', (t) => {
-  const serialized = serialize(null)
-
-  t.alike(serialized, { type: type.NULL })
-
-  t.is(deserialize(serialized), null)
+  clone(t, null, { type: type.NULL })
 })
 
-test('boolean', (t) => {
-  {
-    const serialized = serialize(true)
+test('true', (t) => {
+  clone(t, true, { type: type.TRUE })
+})
 
-    t.alike(serialized, { type: type.TRUE })
-
-    t.is(deserialize(serialized), true)
-  }
-  {
-    const serialized = serialize(false)
-
-    t.alike(serialized, { type: type.FALSE })
-
-    t.is(deserialize(serialized), false)
-  }
+test('false', (t) => {
+  clone(t, false, { type: type.FALSE })
 })
 
 test('array', (t) => {
-  const arr = [42, 'hello', true]
-
-  const serialized = serialize(arr)
-
-  t.alike.coercively(serialized, {
+  clone(t, [42, 'hello', true], {
     type: type.ARRAY,
     id: 0,
     length: 3,
@@ -50,18 +49,15 @@ test('array', (t) => {
       { key: '1', value: { type: type.STRING, value: 'hello' } },
       { key: '2', value: { type: type.TRUE } }
     ]
-  })
-
-  t.alike(deserialize(serialized), arr)
+  }
+  )
 })
 
 test('circular array', (t) => {
   const arr = []
   arr[0] = arr
 
-  const serialized = serialize(arr)
-
-  t.alike.coercively(serialized, {
+  clone(t, arr, {
     type: type.ARRAY,
     id: 1,
     length: 1,
@@ -69,16 +65,10 @@ test('circular array', (t) => {
       { key: '0', value: { type: type.REFERENCE, id: 1 } }
     ]
   })
-
-  t.alike(deserialize(serialized), arr)
 })
 
 test('object', (t) => {
-  const obj = { foo: 42, bar: 'hello', baz: true }
-
-  const serialized = serialize(obj)
-
-  t.alike.coercively(serialized, {
+  clone(t, { foo: 42, bar: 'hello', baz: true }, {
     type: type.OBJECT,
     id: 0,
     properties: [
@@ -87,33 +77,23 @@ test('object', (t) => {
       { key: 'baz', value: { type: type.TRUE } }
     ]
   })
-
-  t.alike(deserialize(serialized), obj)
 })
 
 test('circular object', (t) => {
   const obj = {}
   obj.self = obj
 
-  const serialized = serialize(obj)
-
-  t.alike.coercively(serialized, {
+  clone(t, obj, {
     type: type.OBJECT,
     id: 1,
     properties: [
       { key: 'self', value: { type: type.REFERENCE, id: 1 } }
     ]
   })
-
-  t.alike(deserialize(serialized), obj)
 })
 
 test('map', (t) => {
-  const map = new Map([['foo', 42], [1, true]])
-
-  const serialized = serialize(map)
-
-  t.alike.coercively(serialized, {
+  clone(t, new Map([['foo', 42], [1, true]]), {
     type: type.MAP,
     id: 0,
     data: [
@@ -127,17 +107,13 @@ test('map', (t) => {
       }
     ]
   })
-
-  t.alike(deserialize(serialized), map)
 })
 
 test('circular map', (t) => {
   const map = new Map()
   map.set('self', map)
 
-  const serialized = serialize(map)
-
-  t.alike.coercively(serialized, {
+  clone(t, map, {
     type: type.MAP,
     id: 1,
     data: [
@@ -147,16 +123,10 @@ test('circular map', (t) => {
       }
     ]
   })
-
-  t.alike(deserialize(serialized), map)
 })
 
 test('set', (t) => {
-  const set = new Set(['foo', 42, true])
-
-  const serialized = serialize(set)
-
-  t.alike.coercively(serialized, {
+  clone(t, new Set(['foo', 42, true]), {
     type: type.SET,
     id: 0,
     data: [
@@ -165,39 +135,34 @@ test('set', (t) => {
       { type: type.TRUE }
     ]
   })
-
-  t.alike(deserialize(serialized), set)
 })
 
 test('circular set', (t) => {
   const set = new Set()
   set.add(set)
 
-  const serialized = serialize(set)
-
-  t.alike.coercively(serialized, {
+  clone(t, set, {
     type: type.SET,
     id: 1,
     data: [
       { type: type.REFERENCE, id: 1 }
     ]
   })
-
-  t.alike(deserialize(serialized), set)
 })
 
 test('buffer', (t) => {
   const buf = Buffer.from([1, 2, 3, 4])
 
-  const serialized = serialize(buf)
-
-  t.alike(serialized, {
+  clone(t, buf, {
     type: type.BUFFER,
-    owned: false,
-    data: buf
+    buffer: {
+      type: type.ARRAYBUFFER,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: 0,
+    byteLength: 4
   })
-
-  t.alike(deserialize(serialized), buf)
 })
 
 test('arraybuffer', (t) => {
@@ -205,15 +170,11 @@ test('arraybuffer', (t) => {
 
   Buffer.from(buf).set([1, 2, 3, 4])
 
-  const serialized = serialize(buf)
-
-  t.alike(serialized, {
+  clone(t, buf, {
     type: type.ARRAYBUFFER,
     owned: false,
     data: buf
   })
-
-  t.alike(deserialize(serialized), buf)
 })
 
 test('resizable arraybuffer', (t) => {
@@ -221,16 +182,12 @@ test('resizable arraybuffer', (t) => {
 
   Buffer.from(buf).set([1, 2, 3, 4])
 
-  const serialized = serialize(buf)
-
-  t.alike(serialized, {
+  clone(t, buf, {
     type: type.RESIZABLEARRAYBUFFER,
     owned: false,
     data: buf,
     maxByteLength: 8
   })
-
-  t.alike(deserialize(serialized), buf)
 })
 
 test('sharedarraybuffer', (t) => {
@@ -238,12 +195,14 @@ test('sharedarraybuffer', (t) => {
 
   Buffer.from(buf).set([1, 2, 3, 4])
 
-  const serialized = serialize(buf)
+  clone(t, buf, (serialized) => {
+    t.ok(serialized.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
 
-  t.is(serialized.type, type.SHAREDARRAYBUFFER)
-  t.ok(serialized.backingStore instanceof ArrayBuffer)
-
-  t.alike(deserialize(serialized), buf)
+    return {
+      type: type.SHAREDARRAYBUFFER,
+      backingStore: serialized.backingStore
+    }
+  })
 })
 
 test('growable sharedarraybuffer', (t) => {
@@ -251,20 +210,21 @@ test('growable sharedarraybuffer', (t) => {
 
   Buffer.from(buf).set([1, 2, 3, 4])
 
-  const serialized = serialize(buf)
+  clone(t, buf, (serialized) => {
+    t.ok(serialized.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
 
-  t.is(serialized.type, type.GROWABLESHAREDARRAYBUFFER)
-  t.ok(serialized.backingStore instanceof ArrayBuffer)
-
-  t.alike(deserialize(serialized), buf)
+    return {
+      type: type.GROWABLESHAREDARRAYBUFFER,
+      backingStore: serialized.backingStore,
+      maxByteLength: 8
+    }
+  })
 })
 
 test('uint8array', (t) => {
   const buf = Uint8Array.from([1, 2, 3, 4])
 
-  const serialized = serialize(buf)
-
-  t.alike(serialized, {
+  clone(t, buf, {
     type: type.TYPEDARRAY,
     view: type.typedarray.UINT8ARRAY,
     buffer: {
@@ -276,8 +236,72 @@ test('uint8array', (t) => {
     byteLength: 4,
     length: 4
   })
+})
 
-  t.alike(deserialize(serialized), buf)
+test('int8array', (t) => {
+  const buf = Int8Array.from([1, 2, 3, 4])
+
+  clone(t, buf, {
+    type: type.TYPEDARRAY,
+    view: type.typedarray.INT8ARRAY,
+    buffer: {
+      type: type.ARRAYBUFFER,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: 0,
+    byteLength: 4,
+    length: 4
+  })
+})
+
+test('uint16array', (t) => {
+  const buf = Uint16Array.from([1, 2, 3, 4])
+
+  clone(t, buf, {
+    type: type.TYPEDARRAY,
+    view: type.typedarray.UINT16ARRAY,
+    buffer: {
+      type: type.ARRAYBUFFER,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: 0,
+    byteLength: 8,
+    length: 4
+  })
+})
+
+test('int16array', (t) => {
+  const buf = Int16Array.from([1, 2, 3, 4])
+
+  clone(t, buf, {
+    type: type.TYPEDARRAY,
+    view: type.typedarray.INT16ARRAY,
+    buffer: {
+      type: type.ARRAYBUFFER,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: 0,
+    byteLength: 8,
+    length: 4
+  })
+})
+
+test('dataview', (t) => {
+  const buf = new DataView(new ArrayBuffer(4))
+
+  clone(t, buf, {
+    type: type.DATAVIEW,
+    buffer: {
+      type: type.ARRAYBUFFER,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: 0,
+    byteLength: 4
+  })
 })
 
 test('transfer arraybuffer', (t) => {

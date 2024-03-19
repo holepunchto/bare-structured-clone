@@ -74,6 +74,11 @@ bare_structured_clone_create_arraybuffer (js_env_t *env, js_callback_info_t *inf
   err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, NULL);
   assert(err == 0);
 
+  if (*backing_store == NULL) {
+    js_throw_error(env, NULL, "ArrayBuffer backing store is unset");
+    return NULL;
+  }
+
   js_value_t *result;
   err = js_create_arraybuffer_with_backing_store(env, *backing_store, NULL, NULL, &result);
   assert(err == 0);
@@ -99,6 +104,11 @@ bare_structured_clone_create_sharedarraybuffer (js_env_t *env, js_callback_info_
   js_arraybuffer_backing_store_t **backing_store;
   err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, NULL);
   assert(err == 0);
+
+  if (*backing_store == NULL) {
+    js_throw_error(env, NULL, "SharedArrayBuffer backing store is unset");
+    return NULL;
+  }
 
   js_value_t *result;
   err = js_create_sharedarraybuffer_with_backing_store(env, *backing_store, NULL, NULL, &result);
