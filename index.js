@@ -109,19 +109,8 @@ function serializeValue (value, forStorage, references) {
     case 'string': return serializeString(value)
     case 'symbol': return serializeSymbol(value)
     case 'function': return serializeFunction(value)
-    case 'object': return serializeObjectLike(value, forStorage, references)
   }
-}
 
-function serializeSymbol (value) {
-  throw errors.UNSERIALIZABLE_TYPE(`Symbol '${value.description}' cannot be serialized`)
-}
-
-function serializeFunction (value) {
-  throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
-}
-
-function serializeObjectLike (value, forStorage, references) {
   if (value === null) return { type: t.NULL }
 
   if (value instanceof Date) return serializeDate(value)
@@ -148,6 +137,14 @@ function serializeObjectLike (value, forStorage, references) {
   }
 
   return serializeObject(value, forStorage, references)
+}
+
+function serializeSymbol (value) {
+  throw errors.UNSERIALIZABLE_TYPE(`Symbol '${value.description}' cannot be serialized`)
+}
+
+function serializeFunction (value) {
+  throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
 }
 
 function serializeString (value) {
