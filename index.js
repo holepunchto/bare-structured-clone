@@ -130,12 +130,13 @@ function serializeObjectLike (value, forStorage, references) {
   if (value instanceof Buffer) return serializeBuffer(value)
   if (value instanceof ArrayBuffer) return serializeArrayBuffer(value)
   if (value instanceof SharedArrayBuffer) return serializeSharedArrayBuffer(value, forStorage)
-  if (ArrayBuffer.isView(value)) return value instanceof DataView ? serializeDataView(value) : serializeTypedArray(value)
+  if (value instanceof DataView) return serializeDataView(value)
+  if (ArrayBuffer.isView(value)) return serializeTypedArray(value)
   if (value instanceof Error) return serializeError(value)
   if (value instanceof Map) return serializeMap(value, forStorage, references)
   if (value instanceof Set) return serializeSet(value, forStorage, references)
+  if (value instanceof Array) return serializeArray(value, forStorage, references)
   if (binding.isExternal(value)) return serializeExternal(value)
-  if (Array.isArray(value)) return serializeArray(value, forStorage, references)
 
   if (
     value instanceof Promise ||
