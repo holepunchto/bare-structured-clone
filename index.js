@@ -44,193 +44,7 @@ class SerializeRefMap {
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserialize
 exports.serialize = function serialize (value, forStorage = false, references = new SerializeRefMap()) {
-  if (references.has(value)) return { type: t.REFERENCE, id: references.id(value) }
-
-  if (value === undefined) return { type: t.UNDEFINED }
-  if (value === null) return { type: t.NULL }
-  if (value === true) return { type: t.TRUE }
-  if (value === false) return { type: t.FALSE }
-
-  switch (typeof value) {
-    case 'number': return { type: t.NUMBER, value }
-    case 'bigint': return { type: t.BIGINT, value }
-    case 'string': return { type: t.STRING, value }
-
-    case 'symbol': throw errors.UNSERIALIZABLE_TYPE(`Symbol '${value.description}' cannot be serialized`)
-
-    case 'function': throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
-  }
-
-  if (value instanceof Date) {
-    return { type: t.DATE, value: value.getTime() }
-  }
-
-  if (value instanceof RegExp) {
-    return { type: t.REGEXP, source: value.source, flags: value.flags }
-  }
-
-  if (value instanceof URL) {
-    return { type: t.URL, href: value.href }
-  }
-
-  if (value instanceof Buffer) {
-    if (value.detached) {
-      throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
-    }
-
-    return { type: t.BUFFER, buffer: serialize(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength }
-  }
-
-  if (value instanceof ArrayBuffer) {
-    if (value.detached) {
-      throw errors.UNSERIALIZABLE_TYPE('Detached ArrayBuffer cannot be serialized')
-    }
-
-    if (value.resizable) {
-      return { type: t.RESIZABLEARRAYBUFFER, owned: false, data: value, maxByteLength: value.maxByteLength }
-    }
-
-    return { type: t.ARRAYBUFFER, owned: false, data: value }
-  }
-
-  if (value instanceof SharedArrayBuffer) {
-    if (forStorage) {
-      throw errors.UNSERIALIZABLE_TYPE('SharedArrayBuffer cannot be serialized to storage')
-    }
-
-    const backingStore = binding.getSharedArrayBufferBackingStore(value)
-
-    if (value.growable) {
-      return { type: t.GROWABLESHAREDARRAYBUFFER, backingStore, maxByteLength: value.maxByteLength }
-    }
-
-    return { type: t.SHAREDARRAYBUFFER, backingStore }
-  }
-
-  if (ArrayBuffer.isView(value)) {
-    const buffer = serialize(value.buffer, forStorage, references)
-
-    let view
-
-    if (value instanceof Uint8Array) {
-      view = t.typedarray.UINT8ARRAY
-    } else if (value instanceof Uint8ClampedArray) {
-      view = t.typedarray.UINT8CLAMPEDARRAY
-    } else if (value instanceof Int8Array) {
-      view = t.typedarray.INT8ARRAY
-    } else if (value instanceof Uint16Array) {
-      view = t.typedarray.UINT16ARRAY
-    } else if (value instanceof Int16Array) {
-      view = t.typedarray.INT16ARRAY
-    } else if (value instanceof Uint32Array) {
-      view = t.typedarray.UINT32ARRAY
-    } else if (value instanceof Int32Array) {
-      view = t.typedarray.INT32ARRAY
-    } else if (value instanceof BigUint64Array) {
-      view = t.typedarray.BIGUINT64ARRAY
-    } else if (value instanceof BigInt64Array) {
-      view = t.typedarray.BIGINT64ARRAY
-    } else if (value instanceof Float32Array) {
-      view = t.typedarray.FLOAT32ARRAY
-    } else if (value instanceof Float64Array) {
-      view = t.typedarray.FLOAT64ARRAY
-    } else if (value instanceof DataView) {
-      return { type: t.DATAVIEW, buffer, byteOffset: value.byteOffset, byteLength: value.byteLength }
-    }
-
-    return { type: t.TYPEDARRAY, view, buffer, byteOffset: value.byteOffset, byteLength: value.byteLength, length: value.length }
-  }
-
-  if (value instanceof Error) {
-    let name
-
-    switch (value.name) {
-      case 'EvalError':
-        name = t.error.EVAL
-        break
-      case 'RangeError':
-        name = t.error.RANGE
-        break
-      case 'ReferenceError':
-        name = t.error.REFERENCE
-        break
-      case 'SyntaxError':
-        name = t.error.SYNTAX
-        break
-      case 'TypeError':
-        name = t.error.TYPE
-        break
-      default:
-        name = t.error.NONE
-    }
-
-    return {
-      type: t.ERROR,
-      name,
-      message: value.message.toString(),
-      stack: value.stack ? serialize(value.stack, forStorage, references) : null
-    }
-  }
-
-  if (binding.isExternal(value)) {
-    return { type: t.EXTERNAL, pointer: binding.getExternal(value) }
-  }
-
-  if (
-    value instanceof Promise ||
-    value instanceof WeakMap ||
-    value instanceof WeakSet ||
-    value instanceof WeakRef
-  ) {
-    throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
-  }
-
-  let serialized
-
-  if (value instanceof Map) {
-    serialized = { type: t.MAP, id: 0, data: [] }
-  } else if (value instanceof Set) {
-    serialized = { type: t.SET, id: 0, data: [] }
-  } else if (Array.isArray(value)) {
-    serialized = { type: t.ARRAY, id: 0, length: value.length, properties: [] }
-  } else {
-    serialized = { type: t.OBJECT, id: 0, properties: [] }
-  }
-
-  references.set(value, serialized)
-
-  switch (serialized.type) {
-    case t.MAP:
-      for (const entry of value) {
-        const [key, value] = entry
-
-        serialized.data.push({
-          key: serialize(key, forStorage, references),
-          value: serialize(value, forStorage, references)
-        })
-      }
-      break
-
-    case t.SET:
-      for (const entry of value) {
-        serialized.data.push(serialize(entry, forStorage, references))
-      }
-      break
-
-    default:
-      for (const entry of Object.entries(value)) {
-        const [key, value] = entry
-
-        serialized.properties.push({
-          key,
-          value: serialize(value, forStorage, references)
-        })
-      }
-  }
-
-  if (references.ids.has(value)) serialized.id = references.id(value)
-
-  return serialized
+  return serializeValue(value, forStorage, references)
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializewithtransfer
@@ -253,7 +67,7 @@ exports.serializeWithTransfer = function serializeWithTransfer (value, transferL
     }
   }
 
-  const serialized = exports.serialize(value, false, references)
+  const serialized = serializeValue(value, false, references)
 
   const transfers = []
 
@@ -267,25 +81,262 @@ exports.serializeWithTransfer = function serializeWithTransfer (value, transferL
 
       const id = references.id(transferable)
 
-      let reference
+      let transfer
 
       if (value.resizable) {
-        reference = { type: t.RESIZABLEARRAYBUFFER, id, backingStore, maxByteLength: value.maxByteLength }
+        transfer = { type: t.RESIZABLEARRAYBUFFER, id, backingStore, maxByteLength: value.maxByteLength }
       } else {
-        reference = { type: t.ARRAYBUFFER, id, backingStore }
+        transfer = { type: t.ARRAYBUFFER, id, backingStore }
       }
 
-      transfers.push(reference)
+      transfers.push(transfer)
 
       binding.detachArrayBuffer(transferable)
     }
   }
 
-  return {
-    type: t.TRANSFER,
-    value: serialized,
-    transfers
+  return { type: t.TRANSFER, value: serialized, transfers }
+}
+
+function serializeValue (value, forStorage, references) {
+  if (references.has(value)) return { type: t.REFERENCE, id: references.id(value) }
+
+  switch (typeof value) {
+    case 'undefined': return { type: t.UNDEFINED }
+    case 'boolean': return { type: value ? t.TRUE : t.FALSE }
+    case 'number': return { type: t.NUMBER, value }
+    case 'bigint': return { type: t.BIGINT, value }
+    case 'string': return serializeString(value)
+    case 'symbol': return serializeSymbol(value)
+    case 'function': return serializeFunction(value)
+    case 'object': return serializeObjectLike(value, forStorage, references)
   }
+}
+
+function serializeSymbol (value) {
+  throw errors.UNSERIALIZABLE_TYPE(`Symbol '${value.description}' cannot be serialized`)
+}
+
+function serializeFunction (value) {
+  throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
+}
+
+function serializeObjectLike (value, forStorage, references) {
+  if (value === null) return { type: t.NULL }
+
+  if (value instanceof Date) return serializeDate(value)
+  if (value instanceof RegExp) return serializeRegExp(value)
+  if (value instanceof URL) return serializeURL(value)
+  if (value instanceof Buffer) return serializeBuffer(value)
+  if (value instanceof ArrayBuffer) return serializeArrayBuffer(value)
+  if (value instanceof SharedArrayBuffer) return serializeSharedArrayBuffer(value, forStorage)
+  if (ArrayBuffer.isView(value)) return value instanceof DataView ? serializeDataView(value) : serializeTypedArray(value)
+  if (value instanceof Error) return serializeError(value)
+  if (value instanceof Map) return serializeMap(value, forStorage, references)
+  if (value instanceof Set) return serializeSet(value, forStorage, references)
+  if (binding.isExternal(value)) return serializeExternal(value)
+  if (Array.isArray(value)) return serializeArray(value, forStorage, references)
+
+  if (
+    value instanceof Promise ||
+    value instanceof WeakMap ||
+    value instanceof WeakSet ||
+    value instanceof WeakRef
+  ) {
+    throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
+  }
+
+  return serializeObject(value, forStorage, references)
+}
+
+function serializeString (value) {
+  return { type: t.STRING, value }
+}
+
+function serializeDate (value) {
+  return { type: t.DATE, value: value.getTime() }
+}
+
+function serializeRegExp (value) {
+  return { type: t.REGEXP, source: value.source, flags: value.flags }
+}
+
+function serializeURL (value) {
+  return { type: t.URL, href: value.href }
+}
+
+function serializeError (value) {
+  let name
+
+  switch (value.name) {
+    case 'EvalError':
+      name = t.error.EVAL
+      break
+    case 'RangeError':
+      name = t.error.RANGE
+      break
+    case 'ReferenceError':
+      name = t.error.REFERENCE
+      break
+    case 'SyntaxError':
+      name = t.error.SYNTAX
+      break
+    case 'TypeError':
+      name = t.error.TYPE
+      break
+    default:
+      name = t.error.NONE
+  }
+
+  return {
+    type: t.ERROR,
+    name,
+    message: value.message.toString(),
+    stack: value.stack ? serializeString(value.stack.toString()) : null
+  }
+}
+
+function serializeBuffer (value) {
+  if (value.detached) {
+    throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
+  }
+
+  return { type: t.BUFFER, buffer: serializeArrayBuffer(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength }
+}
+
+function serializeArrayBuffer (value) {
+  if (value.detached) {
+    throw errors.UNSERIALIZABLE_TYPE('Detached ArrayBuffer cannot be serialized')
+  }
+
+  if (value.resizable) {
+    return { type: t.RESIZABLEARRAYBUFFER, owned: false, data: value, maxByteLength: value.maxByteLength }
+  }
+
+  return { type: t.ARRAYBUFFER, owned: false, data: value }
+}
+
+function serializeSharedArrayBuffer (value, forStorage) {
+  if (forStorage) {
+    throw errors.UNSERIALIZABLE_TYPE('SharedArrayBuffer cannot be serialized to storage')
+  }
+
+  const backingStore = binding.getSharedArrayBufferBackingStore(value)
+
+  if (value.growable) {
+    return { type: t.GROWABLESHAREDARRAYBUFFER, backingStore, maxByteLength: value.maxByteLength }
+  }
+
+  return { type: t.SHAREDARRAYBUFFER, backingStore }
+}
+
+function serializeTypedArray (value) {
+  let view
+
+  if (value instanceof Uint8Array) {
+    view = t.typedarray.UINT8ARRAY
+  } else if (value instanceof Uint8ClampedArray) {
+    view = t.typedarray.UINT8CLAMPEDARRAY
+  } else if (value instanceof Int8Array) {
+    view = t.typedarray.INT8ARRAY
+  } else if (value instanceof Uint16Array) {
+    view = t.typedarray.UINT16ARRAY
+  } else if (value instanceof Int16Array) {
+    view = t.typedarray.INT16ARRAY
+  } else if (value instanceof Uint32Array) {
+    view = t.typedarray.UINT32ARRAY
+  } else if (value instanceof Int32Array) {
+    view = t.typedarray.INT32ARRAY
+  } else if (value instanceof BigUint64Array) {
+    view = t.typedarray.BIGUINT64ARRAY
+  } else if (value instanceof BigInt64Array) {
+    view = t.typedarray.BIGINT64ARRAY
+  } else if (value instanceof Float32Array) {
+    view = t.typedarray.FLOAT32ARRAY
+  } else if (value instanceof Float64Array) {
+    view = t.typedarray.FLOAT64ARRAY
+  }
+
+  return { type: t.TYPEDARRAY, view, buffer: serializeArrayBuffer(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength, length: value.length }
+}
+
+function serializeDataView (value) {
+  return { type: t.DATAVIEW, buffer: serializeArrayBuffer(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength }
+}
+
+function serializeMap (value, forStorage, references) {
+  const serialized = { type: t.MAP, id: 0, data: [] }
+
+  references.set(value, serialized)
+
+  for (const entry of value) {
+    const [key, value] = entry
+
+    serialized.data.push({
+      key: serializeValue(key, forStorage, references),
+      value: serializeValue(value, forStorage, references)
+    })
+  }
+
+  if (references.ids.has(value)) serialized.id = references.id(value)
+
+  return serialized
+}
+
+function serializeSet (value, forStorage, references) {
+  const serialized = { type: t.SET, id: 0, data: [] }
+
+  references.set(value, serialized)
+
+  for (const entry of value) {
+    serialized.data.push(serializeValue(entry, forStorage, references))
+  }
+
+  if (references.ids.has(value)) serialized.id = references.id(value)
+
+  return serialized
+}
+
+function serializeArray (value, forStorage, references) {
+  const serialized = { type: t.ARRAY, id: 0, length: value.length, properties: [] }
+
+  references.set(value, serialized)
+
+  for (const entry of Object.entries(value)) {
+    const [key, value] = entry
+
+    serialized.properties.push({
+      key,
+      value: serializeValue(value, forStorage, references)
+    })
+  }
+
+  if (references.ids.has(value)) serialized.id = references.id(value)
+
+  return serialized
+}
+
+function serializeObject (value, forStorage, references) {
+  const serialized = { type: t.OBJECT, id: 0, properties: [] }
+
+  references.set(value, serialized)
+
+  for (const entry of Object.entries(value)) {
+    const [key, value] = entry
+
+    serialized.properties.push({
+      key,
+      value: serializeValue(value, forStorage, references)
+    })
+  }
+
+  if (references.ids.has(value)) serialized.id = references.id(value)
+
+  return serialized
+}
+
+function serializeExternal (value) {
+  return { type: t.EXTERNAL, pointer: binding.getExternal(value) }
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserialize
