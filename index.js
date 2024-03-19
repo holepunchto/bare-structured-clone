@@ -121,7 +121,7 @@ function serializeValue (value, forStorage, references) {
   if (value instanceof SharedArrayBuffer) return serializeSharedArrayBuffer(value, forStorage)
   if (value instanceof DataView) return serializeDataView(value)
   if (ArrayBuffer.isView(value)) return serializeTypedArray(value)
-  if (value instanceof Error) return serializeError(value)
+  if (value instanceof Error) return serializeError(value, forStorage, references)
   if (value instanceof Map) return serializeMap(value, forStorage, references)
   if (value instanceof Set) return serializeSet(value, forStorage, references)
   if (value instanceof Array) return serializeArray(value, forStorage, references)
@@ -163,7 +163,7 @@ function serializeURL (value) {
   return { type: t.URL, href: value.href }
 }
 
-function serializeError (value) {
+function serializeError (value, forStorage, references) {
   let name
 
   switch (value.name) {
@@ -190,7 +190,7 @@ function serializeError (value) {
     type: t.ERROR,
     name,
     message: value.message.toString(),
-    stack: value.stack ? serializeString(value.stack.toString()) : null
+    stack: serializeValue(value.stack, forStorage, references)
   }
 }
 
@@ -439,9 +439,7 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
           value = new Error(serialized.message)
       }
 
-      if (serialized.stack !== null) {
-        value.stack = deserialize(serialized.stack, references)
-      }
+      value.stack = deserialize(serialized.stack, references)
 
       return value
 
@@ -572,6 +570,31 @@ const entries = c.array(entry)
 
 const id = c.uint
 
+const transfer = {
+  preencode (state, m) {
+    c.uint.preencode(state, m.type)
+    c.uint.preencode(state, m.id)
+  },
+  encode (state, m) {
+    c.uint.encode(state, m.type)
+    c.uint.encode(state, m.id)
+  },
+  decode (state) {
+    const type = c.uint.decode(state)
+    const id = c.uint.decode(state)
+
+    switch (type) {
+      case t.ARRAYBUFFER: return {
+        type,
+        id,
+        backingStore: c.arraybuffer.decode(state)
+      }
+    }
+  }
+}
+
+const transfers = c.array(transfer)
+
 const value = {
   preencode (state, m) {
     c.uint.preencode(state, m.type)
@@ -634,6 +657,11 @@ const value = {
         id.preencode(state, m.id)
         values.preencode(state, m.data)
         break
+      case t.ERROR:
+        c.uint.preencode(state, m.name)
+        c.string.preencode(state, m.message)
+        value.preencode(state, m.stack)
+        break
       case t.ARRAY:
         id.preencode(state, m.id)
         c.uint.preencode(state, m.length)
@@ -643,9 +671,15 @@ const value = {
         id.preencode(state, m.id)
         properties.preencode(state, m.properties)
         break
+      case t.EXTERNAL:
+        c.arraybuffer.preencode(state, m.pointer)
+        break
       case t.REFERENCE:
         id.preencode(state, m.id)
         break
+      case t.TRANSFER:
+        value.preencode(state, m.value)
+        transfers.preencode(state, m.transfers)
     }
   },
   encode (state, m) {
@@ -709,6 +743,11 @@ const value = {
         id.encode(state, m.id)
         values.encode(state, m.data)
         break
+      case t.ERROR:
+        c.uint.encode(state, m.name)
+        c.string.encode(state, m.message)
+        value.encode(state, m.stack)
+        break
       case t.ARRAY:
         id.encode(state, m.id)
         c.uint.encode(state, m.length)
@@ -718,9 +757,15 @@ const value = {
         id.encode(state, m.id)
         properties.encode(state, m.properties)
         break
+      case t.EXTERNAL:
+        c.arraybuffer.encode(state, m.pointer)
+        break
       case t.REFERENCE:
         id.encode(state, m.id)
         break
+      case t.TRANSFER:
+        value.encode(state, m.value)
+        transfers.encode(state, m.transfers)
     }
   },
   decode (state) {
@@ -801,6 +846,12 @@ const value = {
         id: id.decode(state),
         data: values.decode(state)
       }
+      case t.ERROR: return {
+        type,
+        name: c.uint.decode(state),
+        message: c.string.decode(state),
+        stack: value.decode(state)
+      }
       case t.ARRAY: return {
         type,
         id: id.decode(state),
@@ -812,11 +863,20 @@ const value = {
         id: id.decode(state),
         properties: properties.decode(state)
       }
+      case t.EXTERNAL: return {
+        type,
+        pointer: c.arraybuffer.decode(state)
+      }
       case t.REFERENCE: return {
         type,
         id: id.decode(state)
       }
-      default: return {
+      case t.TRANSFER: return {
+        type,
+        value: value.decode(state),
+        transfers: transfers.decode(state)
+      }
+      default : return {
         type
       }
     }
