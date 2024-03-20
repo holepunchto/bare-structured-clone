@@ -1,5 +1,6 @@
 const c = require('compact-encoding')
 const bitfield = require('compact-encoding-bitfield')
+const bits = require('bits-to-bytes')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
 const binding = require('./binding')
@@ -115,16 +116,16 @@ function serializeValue (value, forStorage, references) {
 
   if (value instanceof Date) return serializeDate(value)
   if (value instanceof RegExp) return serializeRegExp(value)
-  if (value instanceof URL) return serializeURL(value)
-  if (value instanceof Buffer) return serializeBuffer(value)
+  if (value instanceof Error) return serializeError(value, forStorage, references)
   if (value instanceof ArrayBuffer) return serializeArrayBuffer(value)
   if (value instanceof SharedArrayBuffer) return serializeSharedArrayBuffer(value, forStorage)
   if (value instanceof DataView) return serializeDataView(value)
+  if (value instanceof Buffer) return serializeBuffer(value)
   if (ArrayBuffer.isView(value)) return serializeTypedArray(value)
-  if (value instanceof Error) return serializeError(value, forStorage, references)
   if (value instanceof Map) return serializeMap(value, forStorage, references)
   if (value instanceof Set) return serializeSet(value, forStorage, references)
   if (value instanceof Array) return serializeArray(value, forStorage, references)
+  if (value instanceof URL) return serializeURL(value)
   if (binding.isExternal(value)) return serializeExternal(value, forStorage)
 
   if (
@@ -159,14 +160,13 @@ function serializeRegExp (value) {
   return { type: t.REGEXP, source: value.source, flags: value.flags }
 }
 
-function serializeURL (value) {
-  return { type: t.URL, href: value.href }
-}
-
 function serializeError (value, forStorage, references) {
   let name
 
   switch (value.name) {
+    case 'AggregateError':
+      name = t.error.AGGREGATE
+      break
     case 'EvalError':
       name = t.error.EVAL
       break
@@ -182,24 +182,29 @@ function serializeError (value, forStorage, references) {
     case 'TypeError':
       name = t.error.TYPE
       break
+    case 'URIError':
+      name = t.error.URI
+      break
     default:
       name = t.error.NONE
   }
 
-  return {
+  const serialized = {
     type: t.ERROR,
     name,
     message: value.message.toString(),
     stack: serializeValue(value.stack, forStorage, references)
   }
-}
 
-function serializeBuffer (value) {
-  if (value.detached) {
-    throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
+  if ('cause' in value) { // Don't add unless defined
+    serialized.cause = serializeValue(value)
   }
 
-  return { type: t.BUFFER, buffer: serializeArrayBuffer(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength }
+  if (name === t.error.AGGREGATE) {
+    serialized.errors = value.errors.map((err) => serializeValue(err, forStorage, references))
+  }
+
+  return serialized
 }
 
 function serializeArrayBuffer (value) {
@@ -333,6 +338,18 @@ function serializeObject (value, forStorage, references) {
   return serialized
 }
 
+function serializeURL (value) {
+  return { type: t.URL, href: value.href }
+}
+
+function serializeBuffer (value) {
+  if (value.detached) {
+    throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
+  }
+
+  return { type: t.BUFFER, buffer: serializeArrayBuffer(value.buffer), byteOffset: value.byteOffset, byteLength: value.byteLength }
+}
+
 function serializeExternal (value, forStorage) {
   if (forStorage) {
     throw errors.UNSERIALIZABLE_TYPE('External pointer cannot be serialized to storage')
@@ -357,10 +374,41 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
 
     case t.DATE: return new Date(serialized.value)
     case t.REGEXP: return new RegExp(serialized.source, serialized.flags)
-    case t.URL: return new URL(serialized.href)
 
-    case t.BUFFER:
-      return Buffer.from(deserialize(serialized.buffer), serialized.byteOffset, serialized.byteLength)
+    case t.ERROR: {
+      const options = {}
+
+      if ('cause' in serialized) {
+        options.case = deserialize(serialized.cause, references)
+      }
+
+      switch (serialized.name) {
+        case t.error.AGGREGATE:
+          value = new AggregateError(serialized.errors.map((err) => deserialize(err, references)), serialized.message, options)
+          break
+        case t.error.EVAL:
+          value = new EvalError(serialized.message, options)
+          break
+        case t.error.RANGE:
+          value = new RangeError(serialized.message, options)
+          break
+        case t.error.REFERENCE:
+          value = new ReferenceError(serialized.message, options)
+          break
+        case t.error.SYNTAX:
+          value = new SyntaxError(serialized.message, options)
+          break
+        case t.error.TYPE:
+          value = new TypeError(serialized.message, options)
+          break
+        default:
+          value = new Error(serialized.message, options)
+      }
+
+      value.stack = deserialize(serialized.stack, references)
+
+      return value
+    }
 
     case t.ARRAYBUFFER:
       if (serialized.owned) return serialized.data
@@ -422,34 +470,6 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
     case t.DATAVIEW:
       return new DataView(deserialize(serialized.buffer), serialized.byteOffset, serialized.byteLength)
 
-    case t.ERROR:
-      switch (serialized.name) {
-        case t.error.EVAL:
-          value = new EvalError(serialized.message)
-          break
-        case t.error.RANGE:
-          value = new RangeError(serialized.message)
-          break
-        case t.error.REFERENCE:
-          value = new ReferenceError(serialized.message)
-          break
-        case t.error.SYNTAX:
-          value = new SyntaxError(serialized.message)
-          break
-        case t.error.TYPE:
-          value = new TypeError(serialized.message)
-          break
-        default:
-          value = new Error(serialized.message)
-      }
-
-      value.stack = deserialize(serialized.stack, references)
-
-      return value
-
-    case t.EXTERNAL:
-      return binding.createExternal(serialized.pointer)
-
     case t.MAP:
       value = new Map()
       break
@@ -470,6 +490,14 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
       }
 
       return value
+
+    case t.URL: return new URL(serialized.href)
+
+    case t.BUFFER:
+      return Buffer.from(deserialize(serialized.buffer), serialized.byteOffset, serialized.byteLength)
+
+    case t.EXTERNAL:
+      return binding.createExternal(serialized.pointer)
   }
 
   if (serialized.id) references.set(serialized.id, value)
@@ -512,7 +540,7 @@ exports.deserializeWithTransfer = function deserializeWithTransfer (serialized) 
   return exports.deserialize(serialized.value, references)
 }
 
-const flags = bitfield(0)
+const flags = bitfield(7)
 
 const header = {
   preencode (state) {
@@ -578,10 +606,30 @@ const transfer = {
   preencode (state, m) {
     c.uint.preencode(state, m.type)
     c.uint.preencode(state, m.id)
+
+    switch (m.type) {
+      case t.ARRAYBUFFER:
+        c.arraybuffer.preencode(state, m.backingStore)
+        break
+      case t.RESIZABLEARRAYBUFFER:
+        c.arraybuffer.preencode(state, m.backingStore)
+        c.uint.preencode(state, m.maxByteLength)
+        break
+    }
   },
   encode (state, m) {
     c.uint.encode(state, m.type)
     c.uint.encode(state, m.id)
+
+    switch (m.type) {
+      case t.ARRAYBUFFER:
+        c.arraybuffer.encode(state, m.backingStore)
+        break
+      case t.RESIZABLEARRAYBUFFER:
+        c.arraybuffer.encode(state, m.backingStore)
+        c.uint.encode(state, m.maxByteLength)
+        break
+    }
   },
   decode (state) {
     const type = c.uint.decode(state)
@@ -592,6 +640,12 @@ const transfer = {
         type,
         id,
         backingStore: c.arraybuffer.decode(state)
+      }
+      case t.RESIZABLEARRAYBUFFER: return {
+        type,
+        id,
+        backingStore: c.arraybuffer.decode(state),
+        maxByteLength: c.uint.decode(state)
       }
     }
   }
@@ -607,7 +661,8 @@ const value = {
       case t.NUMBER:
         c.float64.preencode(state, m.value)
         break
-      case t.BIGINT: // TODO
+      case t.BIGINT:
+        c.bigint.preencode(state, m.value)
         break
       case t.STRING:
         c.string.preencode(state, m.value)
@@ -619,13 +674,13 @@ const value = {
         c.string.preencode(state, m.source)
         c.string.preencode(state, m.flags)
         break
-      case t.URL:
-        c.string.preencode(state, m.href)
-        break
-      case t.BUFFER:
-        value.preencode(state, m.buffer)
-        c.uint.preencode(state, m.byteOffset)
-        c.uint.preencode(state, m.byteLength)
+      case t.ERROR:
+        flags.preencode(state)
+        c.uint.preencode(state, m.name)
+        c.string.preencode(state, m.message)
+        value.preencode(state, m.stack)
+        if ('cause' in m) value.preencode(state, m.cause)
+        if (m.name === t.error.AGGREGATE) values.preencode(state, m.errors)
         break
       case t.ARRAYBUFFER:
         c.arraybuffer.preencode(state, m.data)
@@ -661,11 +716,6 @@ const value = {
         id.preencode(state, m.id)
         values.preencode(state, m.data)
         break
-      case t.ERROR:
-        c.uint.preencode(state, m.name)
-        c.string.preencode(state, m.message)
-        value.preencode(state, m.stack)
-        break
       case t.ARRAY:
         id.preencode(state, m.id)
         c.uint.preencode(state, m.length)
@@ -684,6 +734,15 @@ const value = {
       case t.TRANSFER:
         value.preencode(state, m.value)
         transfers.preencode(state, m.transfers)
+        break
+      case t.URL:
+        c.string.preencode(state, m.href)
+        break
+      case t.BUFFER:
+        value.preencode(state, m.buffer)
+        c.uint.preencode(state, m.byteOffset)
+        c.uint.preencode(state, m.byteLength)
+        break
     }
   },
   encode (state, m) {
@@ -693,7 +752,8 @@ const value = {
       case t.NUMBER:
         c.float64.encode(state, m.value)
         break
-      case t.BIGINT: // TODO
+      case t.BIGINT:
+        c.bigint.encode(state, m.value)
         break
       case t.STRING:
         c.string.encode(state, m.value)
@@ -705,13 +765,13 @@ const value = {
         c.string.encode(state, m.source)
         c.string.encode(state, m.flags)
         break
-      case t.URL:
-        c.string.encode(state, m.href)
-        break
-      case t.BUFFER:
-        value.encode(state, m.buffer)
-        c.uint.encode(state, m.byteOffset)
-        c.uint.encode(state, m.byteLength)
+      case t.ERROR:
+        flags.encode(state, bits.of('cause' in m))
+        c.uint.encode(state, m.name)
+        c.string.encode(state, m.message)
+        value.encode(state, m.stack)
+        if ('cause' in m) value.encode(state, m.cause)
+        if (m.name === t.error.AGGREGATE) values.encode(state, m.errors)
         break
       case t.ARRAYBUFFER:
         c.arraybuffer.encode(state, m.data)
@@ -747,11 +807,6 @@ const value = {
         id.encode(state, m.id)
         values.encode(state, m.data)
         break
-      case t.ERROR:
-        c.uint.encode(state, m.name)
-        c.string.encode(state, m.message)
-        value.encode(state, m.stack)
-        break
       case t.ARRAY:
         id.encode(state, m.id)
         c.uint.encode(state, m.length)
@@ -770,6 +825,15 @@ const value = {
       case t.TRANSFER:
         value.encode(state, m.value)
         transfers.encode(state, m.transfers)
+        break
+      case t.URL:
+        c.string.encode(state, m.href)
+        break
+      case t.BUFFER:
+        value.encode(state, m.buffer)
+        c.uint.encode(state, m.byteOffset)
+        c.uint.encode(state, m.byteLength)
+        break
     }
   },
   decode (state) {
@@ -780,8 +844,9 @@ const value = {
         type,
         value: c.float64.decode(state)
       }
-      case t.BIGINT: return { // TODO
-        type
+      case t.BIGINT: return {
+        type,
+        value: c.bigint.decode(state)
       }
       case t.STRING: return {
         type,
@@ -796,15 +861,21 @@ const value = {
         source: c.string.decode(state),
         flags: c.string.decode(state)
       }
-      case t.URL: return {
-        type,
-        href: c.string.decode(state)
-      }
-      case t.BUFFER: return {
-        type,
-        buffer: value.decode(state),
-        byteOffset: c.uint.decode(state),
-        byteLength: c.uint.decode(state)
+      case t.ERROR: {
+        const [hasCause] = bits.iterator(flags.decode(state))
+        const name = c.uint.decode(state)
+
+        const m = {
+          type,
+          name,
+          message: c.string.decode(state),
+          stack: value.decode(state)
+        }
+
+        if (hasCause) m.cause = value.decode(state)
+        if (name === t.error.AGGREGATE) m.errors = values.decode(state)
+
+        return m
       }
       case t.ARRAYBUFFER: return {
         type,
@@ -850,12 +921,6 @@ const value = {
         id: id.decode(state),
         data: values.decode(state)
       }
-      case t.ERROR: return {
-        type,
-        name: c.uint.decode(state),
-        message: c.string.decode(state),
-        stack: value.decode(state)
-      }
       case t.ARRAY: return {
         type,
         id: id.decode(state),
@@ -867,10 +932,6 @@ const value = {
         id: id.decode(state),
         properties: properties.decode(state)
       }
-      case t.EXTERNAL: return {
-        type,
-        pointer: c.arraybuffer.decode(state)
-      }
       case t.REFERENCE: return {
         type,
         id: id.decode(state)
@@ -879,6 +940,20 @@ const value = {
         type,
         value: value.decode(state),
         transfers: transfers.decode(state)
+      }
+      case t.URL: return {
+        type,
+        href: c.string.decode(state)
+      }
+      case t.BUFFER: return {
+        type,
+        buffer: value.decode(state),
+        byteOffset: c.uint.decode(state),
+        byteLength: c.uint.decode(state)
+      }
+      case t.EXTERNAL: return {
+        type,
+        pointer: c.arraybuffer.decode(state)
       }
       default : return {
         type
