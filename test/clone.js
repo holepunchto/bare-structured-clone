@@ -497,6 +497,24 @@ test('clone circular array', (t) => {
   })
 })
 
+test('clone array with additional property', (t) => {
+  const arr = [42, 'hello', true]
+  arr.foo = 'bar'
+
+  clone(t, arr, {
+    type: type.ARRAY,
+    id: 1,
+    length: 3,
+    properties: [
+      { key: '0', value: { type: type.NUMBER, value: 42 } },
+      { key: '1', value: { type: type.STRING, value: 'hello' } },
+      { key: '2', value: { type: type.TRUE } },
+      { key: 'foo', value: { type: type.STRING, value: 'bar' } }
+    ]
+  }
+  )
+})
+
 test('clone object', (t) => {
   clone(t, { foo: 42, bar: 'hello', baz: true }, {
     type: type.OBJECT,
