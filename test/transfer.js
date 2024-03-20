@@ -20,7 +20,7 @@ function transfer (t, from, to, transferList, expected) {
   t.alike(deserialized, to, 'deserializes as expected')
 }
 
-test.solo('transfer arraybuffer', (t) => {
+test('transfer arraybuffer', (t) => {
   const from = new ArrayBuffer(4)
   const to = new ArrayBuffer(4)
 
