@@ -125,7 +125,7 @@ function serializeValue (value, forStorage, references) {
   if (value instanceof Map) return serializeMap(value, forStorage, references)
   if (value instanceof Set) return serializeSet(value, forStorage, references)
   if (value instanceof Array) return serializeArray(value, forStorage, references)
-  if (binding.isExternal(value)) return serializeExternal(value)
+  if (binding.isExternal(value)) return serializeExternal(value, forStorage)
 
   if (
     value instanceof Promise ||
@@ -333,7 +333,7 @@ function serializeObject (value, forStorage, references) {
   return serialized
 }
 
-function serializeExternal (value) {
+function serializeExternal (value, forStorage) {
   if (forStorage) {
     throw errors.UNSERIALIZABLE_TYPE('External pointer cannot be serialized to storage')
   }
