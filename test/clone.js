@@ -68,13 +68,13 @@ test('clone string', (t) => {
 })
 
 test('clone date', (t) => {
-  clone(t, new Date(123456789), { type: type.DATE, value: 123456789 })
-  clone(t, new Date(-123456789), { type: type.DATE, value: -123456789 })
+  clone(t, new Date(123456789), { type: type.DATE, id: 1, value: 123456789 })
+  clone(t, new Date(-123456789), { type: type.DATE, id: 1, value: -123456789 })
 })
 
 test('clone regexp', (t) => {
-  clone(t, /he(ll)o [world]+/, { type: type.REGEXP, source: 'he(ll)o [world]+', flags: '' })
-  clone(t, /he(ll)o [world]+/ig, { type: type.REGEXP, source: 'he(ll)o [world]+', flags: 'gi' })
+  clone(t, /he(ll)o [world]+/, { type: type.REGEXP, id: 1, source: 'he(ll)o [world]+', flags: '' })
+  clone(t, /he(ll)o [world]+/ig, { type: type.REGEXP, id: 1, source: 'he(ll)o [world]+', flags: 'gi' })
 })
 
 test('clone error', (t) => {
@@ -83,6 +83,7 @@ test('clone error', (t) => {
 
   clone(t, err, {
     type: type.ERROR,
+    id: 1,
     name: 0,
     message: 'err',
     stack: {
@@ -98,6 +99,7 @@ test('clone error with cause', (t) => {
 
   clone(t, err, {
     type: type.ERROR,
+    id: 1,
     name: 0,
     message: 'err',
     stack: {
@@ -117,6 +119,7 @@ test('clone type error', (t) => {
 
   clone(t, err, {
     type: type.ERROR,
+    id: 1,
     name: type.error.TYPE,
     message: 'err',
     stack: {
@@ -132,6 +135,7 @@ test('clone type error with cause', (t) => {
 
   clone(t, err, {
     type: type.ERROR,
+    id: 1,
     name: type.error.TYPE,
     message: 'err',
     stack: {
@@ -154,6 +158,7 @@ test('clone aggregate error', (t) => {
 
   clone(t, aggregateErr, {
     type: type.ERROR,
+    id: 1,
     name: type.error.AGGREGATE,
     message: 'aggregate err',
     stack: {
@@ -162,6 +167,7 @@ test('clone aggregate error', (t) => {
     },
     errors: [{
       type: type.ERROR,
+      id: 2,
       name: 0,
       message: 'err',
       stack: {
@@ -181,6 +187,7 @@ test('clone aggregate error with cause', (t) => {
 
   clone(t, aggregateErr, {
     type: type.ERROR,
+    id: 1,
     name: type.error.AGGREGATE,
     message: 'aggregate err',
     stack: {
@@ -193,6 +200,7 @@ test('clone aggregate error with cause', (t) => {
     },
     errors: [{
       type: type.ERROR,
+      id: 2,
       name: 0,
       message: 'err',
       stack: {
@@ -210,6 +218,7 @@ test('clone arraybuffer', (t) => {
 
   clone(t, buf, {
     type: type.ARRAYBUFFER,
+    id: 1,
     owned: false,
     data: buf
   })
@@ -222,6 +231,7 @@ test('clone resizable arraybuffer', (t) => {
 
   clone(t, buf, {
     type: type.RESIZABLEARRAYBUFFER,
+    id: 1,
     owned: false,
     data: buf,
     maxByteLength: 8
@@ -238,6 +248,7 @@ test('clone sharedarraybuffer', (t) => {
 
     return {
       type: type.SHAREDARRAYBUFFER,
+      id: 1,
       backingStore: serialized.backingStore
     }
   })
@@ -253,6 +264,7 @@ test('clone growable sharedarraybuffer', (t) => {
 
     return {
       type: type.GROWABLESHAREDARRAYBUFFER,
+      id: 1,
       backingStore: serialized.backingStore,
       maxByteLength: 8
     }
@@ -264,9 +276,11 @@ test('clone uint8array', (t) => {
 
   clone(t, buf, {
     type: type.TYPEDARRAY,
+    id: 1,
     view: type.typedarray.UINT8ARRAY,
     buffer: {
       type: type.ARRAYBUFFER,
+      id: 2,
       owned: false,
       data: buf.buffer
     },
@@ -276,14 +290,63 @@ test('clone uint8array', (t) => {
   })
 })
 
+test('clone multiple uint8arrays backed by same buffer', (t) => {
+  const buf = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8])
+
+  const a = new Uint8Array(buf.buffer, 0, 4)
+  const b = new Uint8Array(buf.buffer, 4, 4)
+
+  clone(t, [a, b], {
+    type: type.ARRAY,
+    id: 1,
+    length: 2,
+    properties: [
+      {
+        key: '0',
+        value: {
+          type: type.TYPEDARRAY,
+          id: 2,
+          view: type.typedarray.UINT8ARRAY,
+          buffer: {
+            type: type.ARRAYBUFFER,
+            id: 3,
+            owned: false,
+            data: buf.buffer
+          },
+          byteOffset: 0,
+          byteLength: 4,
+          length: 4
+        }
+      },
+      {
+        key: '1',
+        value: {
+          type: type.TYPEDARRAY,
+          id: 4,
+          view: type.typedarray.UINT8ARRAY,
+          buffer: {
+            type: type.REFERENCE,
+            id: 3
+          },
+          byteOffset: 4,
+          byteLength: 4,
+          length: 4
+        }
+      }
+    ]
+  })
+})
+
 test('clone int8array', (t) => {
   const buf = Int8Array.from([1, 2, 3, 4])
 
   clone(t, buf, {
     type: type.TYPEDARRAY,
+    id: 1,
     view: type.typedarray.INT8ARRAY,
     buffer: {
       type: type.ARRAYBUFFER,
+      id: 2,
       owned: false,
       data: buf.buffer
     },
@@ -298,9 +361,11 @@ test('clone uint16array', (t) => {
 
   clone(t, buf, {
     type: type.TYPEDARRAY,
+    id: 1,
     view: type.typedarray.UINT16ARRAY,
     buffer: {
       type: type.ARRAYBUFFER,
+      id: 2,
       owned: false,
       data: buf.buffer
     },
@@ -315,9 +380,11 @@ test('clone int16array', (t) => {
 
   clone(t, buf, {
     type: type.TYPEDARRAY,
+    id: 1,
     view: type.typedarray.INT16ARRAY,
     buffer: {
       type: type.ARRAYBUFFER,
+      id: 2,
       owned: false,
       data: buf.buffer
     },
@@ -332,8 +399,10 @@ test('clone dataview', (t) => {
 
   clone(t, buf, {
     type: type.DATAVIEW,
+    id: 1,
     buffer: {
       type: type.ARRAYBUFFER,
+      id: 2,
       owned: false,
       data: buf.buffer
     },
@@ -345,7 +414,7 @@ test('clone dataview', (t) => {
 test('clone map', (t) => {
   clone(t, new Map([['foo', 42], [1, true]]), {
     type: type.MAP,
-    id: 0,
+    id: 1,
     data: [
       {
         key: { type: type.STRING, value: 'foo' },
@@ -378,7 +447,7 @@ test('clone circular map', (t) => {
 test('clone set', (t) => {
   clone(t, new Set(['foo', 42, true]), {
     type: type.SET,
-    id: 0,
+    id: 1,
     data: [
       { type: type.STRING, value: 'foo' },
       { type: type.NUMBER, value: 42 },
@@ -403,7 +472,7 @@ test('clone circular set', (t) => {
 test('clone array', (t) => {
   clone(t, [42, 'hello', true], {
     type: type.ARRAY,
-    id: 0,
+    id: 1,
     length: 3,
     properties: [
       { key: '0', value: { type: type.NUMBER, value: 42 } },
@@ -431,7 +500,7 @@ test('clone circular array', (t) => {
 test('clone object', (t) => {
   clone(t, { foo: 42, bar: 'hello', baz: true }, {
     type: type.OBJECT,
-    id: 0,
+    id: 1,
     properties: [
       { key: 'foo', value: { type: type.NUMBER, value: 42 } },
       { key: 'bar', value: { type: type.STRING, value: 'hello' } },
@@ -454,7 +523,7 @@ test('clone circular object', (t) => {
 })
 
 test('clone url', (t) => {
-  clone(t, new URL('https://example.org'), { type: type.URL, href: 'https://example.org/' })
+  clone(t, new URL('https://example.org'), { type: type.URL, id: 1, href: 'https://example.org/' })
 })
 
 test('clone buffer', (t) => {
@@ -462,8 +531,10 @@ test('clone buffer', (t) => {
 
   clone(t, buf, {
     type: type.BUFFER,
+    id: 1,
     buffer: {
       type: type.ARRAYBUFFER,
+      id: 2,
       owned: false,
       data: buf.buffer
     },

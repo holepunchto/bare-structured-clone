@@ -32,10 +32,10 @@ test('transfer arraybuffer', (t) => {
 
     return {
       type: type.TRANSFER,
-      value: { type: type.REFERENCE, id: 1 },
       transfers: [
         { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
-      ]
+      ],
+      value: { type: type.REFERENCE, id: 1 }
     }
   })
 })
@@ -52,10 +52,10 @@ test('transfer resizable arraybuffer', (t) => {
 
     return {
       type: type.TRANSFER,
-      value: { type: type.REFERENCE, id: 1 },
       transfers: [
         { type: type.RESIZABLEARRAYBUFFER, id: 1, backingStore: buf.backingStore, maxByteLength: 8 }
-      ]
+      ],
+      value: { type: type.REFERENCE, id: 1 }
     }
   })
 })
@@ -72,9 +72,12 @@ test('transfer arraybuffer in array', (t) => {
 
     return {
       type: type.TRANSFER,
+      transfers: [
+        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
+      ],
       value: {
         type: type.ARRAY,
-        id: 0,
+        id: 2,
         length: 1,
         properties: [
           {
@@ -82,10 +85,7 @@ test('transfer arraybuffer in array', (t) => {
             value: { type: type.REFERENCE, id: 1 }
           }
         ]
-      },
-      transfers: [
-        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
-      ]
+      }
     }
   })
 })
@@ -102,19 +102,19 @@ test('transfer arraybuffer in object', (t) => {
 
     return {
       type: type.TRANSFER,
+      transfers: [
+        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
+      ],
       value: {
         type: type.OBJECT,
-        id: 0,
+        id: 2,
         properties: [
           {
             key: 'buf',
             value: { type: type.REFERENCE, id: 1 }
           }
         ]
-      },
-      transfers: [
-        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
-      ]
+      }
     }
   })
 })
