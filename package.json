@@ -2,7 +2,10 @@
   "name": "bare-structured-clone",
   "version": "1.0.0",
   "description": "Structured cloning algorithm for JavaScript",
-  "exports": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package": "./package.json"
+  },
   "files": [
     "index.js",
     "binding.c",
