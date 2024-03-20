@@ -334,6 +334,10 @@ function serializeObject (value, forStorage, references) {
 }
 
 function serializeExternal (value) {
+  if (forStorage) {
+    throw errors.UNSERIALIZABLE_TYPE('External pointer cannot be serialized to storage')
+  }
+
   return { type: t.EXTERNAL, pointer: binding.getExternal(value) }
 }
 
