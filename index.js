@@ -161,7 +161,7 @@ function serializeRegExp (value) {
 }
 
 function serializeError (value, forStorage, references) {
-  let name
+  let name = 0
 
   switch (value.name) {
     case 'AggregateError':
@@ -185,8 +185,6 @@ function serializeError (value, forStorage, references) {
     case 'URIError':
       name = t.error.URI
       break
-    default:
-      name = t.error.NONE
   }
 
   const serialized = {
@@ -197,7 +195,7 @@ function serializeError (value, forStorage, references) {
   }
 
   if ('cause' in value) { // Don't add unless defined
-    serialized.cause = serializeValue(value)
+    serialized.cause = serializeValue(value.cause, forStorage, references)
   }
 
   if (name === t.error.AGGREGATE) {

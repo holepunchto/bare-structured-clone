@@ -77,6 +77,132 @@ test('clone regexp', (t) => {
   clone(t, /he(ll)o [world]+/ig, { type: type.REGEXP, source: 'he(ll)o [world]+', flags: 'gi' })
 })
 
+test('clone error', (t) => {
+  const err = new Error('err')
+  err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
+
+  clone(t, err, {
+    type: type.ERROR,
+    name: 0,
+    message: 'err',
+    stack: {
+      type: type.STRING,
+      value: err.stack
+    }
+  })
+})
+
+test('clone error with cause', (t) => {
+  const err = new Error('err', { cause: 'err cause' })
+  err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
+
+  clone(t, err, {
+    type: type.ERROR,
+    name: 0,
+    message: 'err',
+    stack: {
+      type: type.STRING,
+      value: err.stack
+    },
+    cause: {
+      type: type.STRING,
+      value: 'err cause'
+    }
+  })
+})
+
+test('clone type error', (t) => {
+  const err = new TypeError('err')
+  err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
+
+  clone(t, err, {
+    type: type.ERROR,
+    name: type.error.TYPE,
+    message: 'err',
+    stack: {
+      type: type.STRING,
+      value: err.stack
+    }
+  })
+})
+
+test('clone type error with cause', (t) => {
+  const err = new TypeError('err', { cause: 'err cause' })
+  err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
+
+  clone(t, err, {
+    type: type.ERROR,
+    name: type.error.TYPE,
+    message: 'err',
+    stack: {
+      type: type.STRING,
+      value: err.stack
+    },
+    cause: {
+      type: type.STRING,
+      value: 'err cause'
+    }
+  })
+})
+
+test('clone aggregate error', (t) => {
+  const err = new Error('err')
+  err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
+
+  const aggregateErr = new AggregateError([err], 'aggregate err')
+  aggregateErr.stack = `${aggregateErr.name}: ${aggregateErr.message}\n    at file:///foo/bar.js`
+
+  clone(t, aggregateErr, {
+    type: type.ERROR,
+    name: type.error.AGGREGATE,
+    message: 'aggregate err',
+    stack: {
+      type: type.STRING,
+      value: aggregateErr.stack
+    },
+    errors: [{
+      type: type.ERROR,
+      name: 0,
+      message: 'err',
+      stack: {
+        type: type.STRING,
+        value: err.stack
+      }
+    }]
+  })
+})
+
+test('clone aggregate error with cause', (t) => {
+  const err = new Error('err')
+  err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
+
+  const aggregateErr = new AggregateError([err], 'aggregate err', { cause: 'err cause' })
+  aggregateErr.stack = `${aggregateErr.name}: ${aggregateErr.message}\n    at file:///foo/bar.js`
+
+  clone(t, aggregateErr, {
+    type: type.ERROR,
+    name: type.error.AGGREGATE,
+    message: 'aggregate err',
+    stack: {
+      type: type.STRING,
+      value: aggregateErr.stack
+    },
+    cause: {
+      type: type.STRING,
+      value: 'err cause'
+    },
+    errors: [{
+      type: type.ERROR,
+      name: 0,
+      message: 'err',
+      stack: {
+        type: type.STRING,
+        value: err.stack
+      }
+    }]
+  })
+})
+
 test('clone arraybuffer', (t) => {
   const buf = new ArrayBuffer(4)
 
