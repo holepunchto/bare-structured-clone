@@ -40,7 +40,7 @@ exports.serialize = function serialize (value, forStorage = false, references = 
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializewithtransfer
-exports.serializeWithTransfer = function serializeWithTransfer (value, transferList) {
+exports.serializeWithTransfer = function serializeWithTransfer (value, transferList = []) {
   const references = new SerializeRefMap()
 
   for (const transferable of transferList) {
