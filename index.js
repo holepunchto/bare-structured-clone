@@ -12,6 +12,7 @@ module.exports = exports = function structuredClone (value, opts = {}) {
 }
 
 exports.constants = constants
+exports.errors = errors
 
 class SerializeRefMap {
   constructor () {

@@ -4,7 +4,9 @@
   "description": "Structured cloning algorithm for JavaScript",
   "exports": {
     ".": "./index.js",
-    "./package": "./package.json"
+    "./package": "./package.json",
+    "./constants": "./lib/constants.js",
+    "./errors": "./lib/errors.js"
   },
   "files": [
     "index.js",
