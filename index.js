@@ -8,13 +8,87 @@ const binding = require('./binding')
 const t = constants.type
 
 module.exports = exports = function structuredClone (value, opts = {}) {
-  return exports.deserializeWithTransfer(exports.serializeWithTransfer(value, opts.transfer))
+  return exports.deserializeWithTransfer(exports.serializeWithTransfer(value, opts.transfer, opts.interfaces), opts.interfaces)
+}
+
+// https://html.spec.whatwg.org/multipage/structured-data.html#structuredserialize
+exports.serialize = function serialize (value, forStorage = false, interfaces = []) {
+  return serializeValue(value, forStorage, new InterfaceMap(interfaces), new ReferenceMap())
+}
+
+// https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializewithtransfer
+exports.serializeWithTransfer = function serializeWithTransfer (value, transferList = [], interfaces = []) {
+  return serializeValueWithTransfer(value, transferList, new InterfaceMap(interfaces))
+}
+
+// https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserialize
+exports.deserialize = function deserialize (serialized, interfaces = []) {
+  return deserializeValue(serialized, new InterfaceMap(interfaces), new Map())
+}
+
+// https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserializewithtransfer
+exports.deserializeWithTransfer = function deserializeWithTransfer (serialized, interfaces = []) {
+  return deserializeValueWithTransfer(serialized, new InterfaceMap(interfaces))
 }
 
 exports.constants = constants
 exports.errors = errors
 
-class SerializeRefMap {
+exports.Serializable = class Serializable {
+  [Symbol.for('bare.serialize')] () {}
+
+  static [Symbol.for('bare.deserialize')] () {}
+}
+
+exports.Transferable = class Transferable {
+  constructor () {
+    this.detached = false
+  }
+
+  [Symbol.for('bare.detach')] () {
+    this.detached = true
+  }
+
+  static [Symbol.for('bare.attach')] () {}
+}
+
+class InterfaceMap {
+  constructor (interfaces) {
+    this.ids = new WeakMap()
+    this.interfaces = new Map()
+
+    let nextId = 1
+
+    for (const constructor of interfaces) {
+      const id = nextId++
+
+      this.ids.set(constructor, id)
+      this.interfaces.set(id, constructor)
+    }
+  }
+
+  id (constructor) {
+    const id = this.ids.get(constructor)
+
+    if (!id) {
+      throw errors.INVALID_INTERFACE(`Class '${constructor.name}' is not registered as a serializable or transferable interface`)
+    }
+
+    return id
+  }
+
+  get (id) {
+    const constructor = this.interfaces.get(id)
+
+    if (!constructor) {
+      throw errors.INVALID_INTERFACE(`Interface with ID '${id}' was not found`)
+    }
+
+    return constructor
+  }
+}
+
+class ReferenceMap {
   constructor () {
     this.ids = new WeakMap()
     this.nextId = 1
@@ -35,63 +109,7 @@ class SerializeRefMap {
   }
 }
 
-// https://html.spec.whatwg.org/multipage/structured-data.html#structuredserialize
-exports.serialize = function serialize (value, forStorage = false, references = new SerializeRefMap()) {
-  return serializeValue(value, forStorage, references)
-}
-
-// https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializewithtransfer
-exports.serializeWithTransfer = function serializeWithTransfer (value, transferList = []) {
-  const references = new SerializeRefMap()
-
-  for (const transferable of transferList) {
-    if (transferable instanceof ArrayBuffer) {
-      if (transferable.detached) {
-        throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
-      }
-
-      if (references.has(transferable)) {
-        throw errors.ALREADY_TRANSFERRED('ArrayBuffer has already been transferred')
-      }
-
-      references.id(transferable)
-    } else {
-      throw errors.UNTRANSFERABLE_TYPE('Value cannot be transferred')
-    }
-  }
-
-  const serialized = serializeValue(value, false, references)
-
-  const transfers = []
-
-  for (const transferable of transferList) {
-    if (transferable instanceof ArrayBuffer) {
-      if (transferable.detached) {
-        throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
-      }
-
-      const backingStore = binding.getSharedArrayBufferBackingStore(transferable)
-
-      const id = references.id(transferable)
-
-      let transfer
-
-      if (value.resizable) {
-        transfer = { type: t.RESIZABLEARRAYBUFFER, id, backingStore, maxByteLength: value.maxByteLength }
-      } else {
-        transfer = { type: t.ARRAYBUFFER, id, backingStore }
-      }
-
-      transfers.push(transfer)
-
-      binding.detachArrayBuffer(transferable)
-    }
-  }
-
-  return { type: t.TRANSFER, transfers, value: serialized }
-}
-
-function serializeValue (value, forStorage, references) {
+function serializeValue (value, forStorage, interfaces, references) {
   switch (typeof value) {
     case 'undefined': return { type: t.UNDEFINED }
     case 'boolean': return { type: value ? t.TRUE : t.FALSE }
@@ -104,7 +122,7 @@ function serializeValue (value, forStorage, references) {
 
   if (value === null) return { type: t.NULL }
 
-  return serializeReferenceable(value, forStorage, references)
+  return serializeReferenceable(value, forStorage, interfaces, references)
 }
 
 function serializeString (value) {
@@ -119,22 +137,22 @@ function serializeFunction (value) {
   throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
 }
 
-function serializeReferenceable (value, forStorage, references) {
+function serializeReferenceable (value, forStorage, interfaces, references) {
   if (references.has(value)) return serializeReference(value, references)
 
   if (value instanceof Date) return serializeDate(value, references)
   if (value instanceof RegExp) return serializeRegExp(value, references)
-  if (value instanceof Error) return serializeError(value, forStorage, references)
+  if (value instanceof Error) return serializeError(value, forStorage, interfaces, references)
   if (value instanceof ArrayBuffer) return serializeArrayBuffer(value, references)
   if (value instanceof SharedArrayBuffer) return serializeSharedArrayBuffer(value, forStorage, references)
-  if (value instanceof DataView) return serializeDataView(value, forStorage, references)
-  if (value instanceof Buffer) return serializeBuffer(value, forStorage, references)
-  if (ArrayBuffer.isView(value)) return serializeTypedArray(value, forStorage, references)
-  if (value instanceof Map) return serializeMap(value, forStorage, references)
-  if (value instanceof Set) return serializeSet(value, forStorage, references)
-  if (value instanceof Array) return serializeArray(value, forStorage, references)
+  if (value instanceof DataView) return serializeDataView(value, forStorage, interfaces, references)
+  if (value instanceof Buffer) return serializeBuffer(value, forStorage, interfaces, references)
+  if (ArrayBuffer.isView(value)) return serializeTypedArray(value, forStorage, interfaces, references)
+  if (value instanceof Map) return serializeMap(value, forStorage, interfaces, references)
+  if (value instanceof Set) return serializeSet(value, forStorage, interfaces, references)
+  if (value instanceof Array) return serializeArray(value, forStorage, interfaces, references)
   if (value instanceof URL) return serializeURL(value, references)
-  if (binding.isExternal(value)) return serializeExternal(value, forStorage, references)
+  if (binding.isExternal(value)) return serializeExternal(value, forStorage, interfaces, references)
 
   if (
     value instanceof Promise ||
@@ -145,7 +163,11 @@ function serializeReferenceable (value, forStorage, references) {
     throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
   }
 
-  return serializeObject(value, forStorage, references)
+  const serialize = value[Symbol.for('bare.serialize')]
+
+  if (serialize) return serializeSerializable(value, serialize, forStorage, interfaces, references)
+
+  return serializeObject(value, forStorage, interfaces, references)
 }
 
 function serializeReference (value, references) {
@@ -160,7 +182,7 @@ function serializeRegExp (value, references) {
   return { type: t.REGEXP, id: references.id(value), source: value.source, flags: value.flags }
 }
 
-function serializeError (value, forStorage, references) {
+function serializeError (value, forStorage, interfaces, references) {
   let name = 0
 
   switch (value.name) {
@@ -192,15 +214,15 @@ function serializeError (value, forStorage, references) {
     id: references.id(value),
     name,
     message: value.message.toString(),
-    stack: serializeValue(value.stack, forStorage, references)
+    stack: serializeValue(value.stack, forStorage, interfaces, references)
   }
 
   if ('cause' in value) { // Don't add unless defined
-    serialized.cause = serializeValue(value.cause, forStorage, references)
+    serialized.cause = serializeValue(value.cause, forStorage, interfaces, references)
   }
 
   if (name === t.error.AGGREGATE) {
-    serialized.errors = value.errors.map((err) => serializeValue(err, forStorage, references))
+    serialized.errors = value.errors.map((err) => serializeValue(err, forStorage, interfaces, references))
   }
 
   return serialized
@@ -256,7 +278,7 @@ function serializeSharedArrayBuffer (value, forStorage, references) {
   }
 }
 
-function serializeTypedArray (value, forStorage, references) {
+function serializeTypedArray (value, forStorage, interfaces, references) {
   let view
 
   if (value instanceof Uint8Array) {
@@ -287,24 +309,24 @@ function serializeTypedArray (value, forStorage, references) {
     type: t.TYPEDARRAY,
     id: references.id(value),
     view,
-    buffer: serializeValue(value.buffer, forStorage, references),
+    buffer: serializeValue(value.buffer, forStorage, interfaces, references),
     byteOffset: value.byteOffset,
     byteLength: value.byteLength,
     length: value.length
   }
 }
 
-function serializeDataView (value, forStorage, references) {
+function serializeDataView (value, forStorage, interfaces, references) {
   return {
     type: t.DATAVIEW,
     id: references.id(references),
-    buffer: serializeValue(value.buffer, forStorage, references),
+    buffer: serializeValue(value.buffer, forStorage, interfaces, references),
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
   }
 }
 
-function serializeMap (value, forStorage, references) {
+function serializeMap (value, forStorage, interfaces, references) {
   const id = references.id(value)
   const data = []
 
@@ -312,26 +334,26 @@ function serializeMap (value, forStorage, references) {
     const [key, value] = entry
 
     data.push({
-      key: serializeValue(key, forStorage, references),
-      value: serializeValue(value, forStorage, references)
+      key: serializeValue(key, forStorage, interfaces, references),
+      value: serializeValue(value, forStorage, interfaces, references)
     })
   }
 
   return { type: t.MAP, id, data }
 }
 
-function serializeSet (value, forStorage, references) {
+function serializeSet (value, forStorage, interfaces, references) {
   const id = references.id(value)
   const data = []
 
   for (const entry of value) {
-    data.push(serializeValue(entry, forStorage, references))
+    data.push(serializeValue(entry, forStorage, interfaces, references))
   }
 
   return { type: t.SET, id, data }
 }
 
-function serializeArray (value, forStorage, references) {
+function serializeArray (value, forStorage, interfaces, references) {
   const id = references.id(value)
   const properties = []
 
@@ -340,14 +362,14 @@ function serializeArray (value, forStorage, references) {
 
     properties.push({
       key,
-      value: serializeValue(value, forStorage, references)
+      value: serializeValue(value, forStorage, interfaces, references)
     })
   }
 
   return { type: t.ARRAY, id, length: value.length, properties }
 }
 
-function serializeObject (value, forStorage, references) {
+function serializeObject (value, forStorage, interfaces, references) {
   const id = references.id(value)
   const properties = []
 
@@ -356,7 +378,7 @@ function serializeObject (value, forStorage, references) {
 
     properties.push({
       key,
-      value: serializeValue(value, forStorage, references)
+      value: serializeValue(value, forStorage, interfaces, references)
     })
   }
 
@@ -367,7 +389,7 @@ function serializeURL (value, references) {
   return { type: t.URL, id: references.id(value), href: value.href }
 }
 
-function serializeBuffer (value, forStorage, references) {
+function serializeBuffer (value, forStorage, interfaces, references) {
   if (value.detached) {
     throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
   }
@@ -375,7 +397,7 @@ function serializeBuffer (value, forStorage, references) {
   return {
     type: t.BUFFER,
     id: references.id(value),
-    buffer: serializeValue(value.buffer, forStorage, references),
+    buffer: serializeValue(value.buffer, forStorage, interfaces, references),
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
   }
@@ -393,8 +415,95 @@ function serializeExternal (value, forStorage, references) {
   }
 }
 
-// https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserialize
-exports.deserialize = function deserialize (serialized, references = new Map()) {
+function serializeSerializable (value, serializer, forStorage, interfaces, references) {
+  return {
+    type: t.SERIALIZABLE,
+    id: references.id(value),
+    interface: interfaces.id(value.constructor),
+    value: serializeValue(serializer.call(value, forStorage))
+  }
+}
+
+function serializeValueWithTransfer (value, transferList, interfaces) {
+  const references = new ReferenceMap()
+
+  for (const transferable of transferList) {
+    if (transferable instanceof ArrayBuffer) {
+      if (transferable.detached) {
+        throw errors.UNTRANSFERABLE_TYPE('Detached \'ArrayBuffer\' cannot be transferred')
+      }
+
+      if (references.has(transferable)) {
+        throw errors.ALREADY_TRANSFERRED('\'ArrayBuffer\' has already been transferred')
+      }
+
+      references.id(transferable)
+    } else {
+      const detach = transferable[Symbol.for('bare.detach')]
+
+      if (detach) {
+        if (transferable.detached) {
+          throw errors.UNTRANSFERABLE_TYPE(`Detached '${transferable.constructor.name}' cannot be transferred`)
+        }
+
+        if (references.has(transferable)) {
+          throw errors.ALREADY_TRANSFERRED(`'${transferable.constructor.name}' has already been transferred`)
+        }
+
+        references.id(transferable)
+      } else {
+        throw errors.UNTRANSFERABLE_TYPE('Value cannot be transferred')
+      }
+    }
+  }
+
+  const serialized = serializeValue(value, false, interfaces, references)
+
+  const transfers = []
+
+  for (const transferable of transferList) {
+    if (transferable instanceof ArrayBuffer) {
+      if (transferable.detached) {
+        throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
+      }
+
+      const backingStore = binding.getArrayBufferBackingStore(transferable)
+
+      const id = references.id(transferable)
+
+      let transfer
+
+      if (value.resizable) {
+        transfer = { type: t.RESIZABLEARRAYBUFFER, id, backingStore, maxByteLength: value.maxByteLength }
+      } else {
+        transfer = { type: t.ARRAYBUFFER, id, backingStore }
+      }
+
+      transfers.push(transfer)
+
+      binding.detachArrayBuffer(transferable)
+    } else {
+      if (transferable.detached) {
+        throw errors.UNTRANSFERABLE_TYPE(`Detached '${transferable.constructor.name}' cannot be transferred`)
+      }
+
+      const detach = transferable[Symbol.for('bare.detach')]
+
+      const transfer = {
+        type: t.TRANSFERABLE,
+        id: references.id(transferable),
+        interface: interfaces.id(transferable.constructor),
+        value: serializeValue(detach.call(transferable))
+      }
+
+      transfers.push(transfer)
+    }
+  }
+
+  return { type: t.TRANSFER, transfers, value: serialized }
+}
+
+function deserializeValue (serialized, interfaces, references) {
   let value
 
   switch (serialized.type) {
@@ -419,12 +528,12 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
       const options = {}
 
       if ('cause' in serialized) {
-        options.case = deserialize(serialized.cause, references)
+        options.case = deserializeValue(serialized.cause, interfaces, references)
       }
 
       switch (serialized.name) {
         case t.error.AGGREGATE:
-          value = new AggregateError(serialized.errors.map((err) => deserialize(err, references)), serialized.message, options)
+          value = new AggregateError(serialized.errors.map((err) => deserializeValue(err, interfaces, references)), serialized.message, options)
           break
         case t.error.EVAL:
           value = new EvalError(serialized.message, options)
@@ -445,7 +554,7 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
           value = new Error(serialized.message, options)
       }
 
-      value.stack = deserialize(serialized.stack, references)
+      value.stack = deserializeValue(serialized.stack, interfaces, references)
 
       break
     }
@@ -479,7 +588,7 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
       break
 
     case t.TYPEDARRAY: {
-      const buffer = deserialize(serialized.buffer, references)
+      const buffer = deserializeValue(serialized.buffer, interfaces, references)
 
       switch (serialized.view) {
         case t.typedarray.UINT8ARRAY:
@@ -521,7 +630,7 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
     }
 
     case t.DATAVIEW:
-      value = new DataView(deserialize(serialized.buffer, references), serialized.byteOffset, serialized.byteLength)
+      value = new DataView(deserializeValue(serialized.buffer, interfaces, references), serialized.byteOffset, serialized.byteLength)
       break
 
     case t.MAP:
@@ -548,12 +657,21 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
     case t.URL: return new URL(serialized.href)
 
     case t.BUFFER:
-      value = Buffer.from(deserialize(serialized.buffer, references), serialized.byteOffset, serialized.byteLength)
+      value = Buffer.from(deserializeValue(serialized.buffer, interfaces, references), serialized.byteOffset, serialized.byteLength)
       break
 
     case t.EXTERNAL:
       value = binding.createExternal(serialized.pointer)
       break
+
+    case t.SERIALIZABLE: {
+      const constructor = interfaces.get(serialized.interface)
+
+      const deserialize = constructor[Symbol.for('bare.deserialize')]
+
+      value = deserialize.call(constructor, deserializeValue(serialized.value, interfaces, references))
+      break
+    }
   }
 
   references.set(serialized.id, value)
@@ -561,28 +679,28 @@ exports.deserialize = function deserialize (serialized, references = new Map()) 
   switch (serialized.type) {
     case t.MAP:
       for (const entry of serialized.data) {
-        value.set(deserialize(entry.key, references), deserialize(entry.value, references))
+        value.set(deserializeValue(entry.key, interfaces, references), deserializeValue(entry.value, interfaces, references))
       }
       break
 
     case t.SET:
       for (const entry of serialized.data) {
-        value.add(deserialize(entry, references))
+        value.add(deserializeValue(entry, interfaces, references))
       }
       break
 
     case t.ARRAY:
     case t.OBJECT:
       for (const entry of serialized.properties) {
-        value[entry.key] = deserialize(entry.value, references)
+        value[entry.key] = deserializeValue(entry.value, interfaces, references)
       }
+      break
   }
 
   return value
 }
 
-// https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserializewithtransfer
-exports.deserializeWithTransfer = function deserializeWithTransfer (serialized) {
+function deserializeValueWithTransfer (serialized, interfaces) {
   const references = new Map()
 
   for (const transfer of serialized.transfers) {
@@ -590,10 +708,20 @@ exports.deserializeWithTransfer = function deserializeWithTransfer (serialized) 
       case t.ARRAYBUFFER:
       case t.RESIZABLEARRAYBUFFER:
         references.set(transfer.id, binding.createArrayBuffer(transfer.backingStore))
+        break
+
+      case t.TRANSFERABLE: {
+        const constructor = interfaces.get(transfer.interface)
+
+        const attach = constructor[Symbol.for('bare.attach')]
+
+        references.set(transfer.id, attach.call(constructor, deserializeValue(transfer.value, interfaces, references)))
+        break
+      }
     }
   }
 
-  return exports.deserialize(serialized.value, references)
+  return deserializeValue(serialized.value, interfaces, references)
 }
 
 const flags = bitfield(7)
@@ -669,6 +797,10 @@ const transfer = {
         c.arraybuffer.preencode(state, m.backingStore)
         c.uint.preencode(state, m.maxByteLength)
         break
+      case t.TRANSFERABLE:
+        c.uint.preencode(state, m.interface)
+        value.preencode(state, m.value)
+        break
     }
   },
   encode (state, m) {
@@ -682,6 +814,10 @@ const transfer = {
       case t.RESIZABLEARRAYBUFFER:
         c.arraybuffer.encode(state, m.backingStore)
         c.uint.encode(state, m.maxByteLength)
+        break
+      case t.TRANSFERABLE:
+        c.uint.encode(state, m.interface)
+        value.encode(state, m.value)
         break
     }
   },
@@ -700,6 +836,12 @@ const transfer = {
         id,
         backingStore: c.arraybuffer.decode(state),
         maxByteLength: c.uint.decode(state)
+      }
+      case t.TRANSFERABLE: return {
+        type,
+        id,
+        interface: c.uint.decode(state),
+        value: value.decode(state)
       }
     }
   }
@@ -786,9 +928,6 @@ const value = {
       case t.OBJECT:
         properties.preencode(state, m.properties)
         break
-      case t.EXTERNAL:
-        c.arraybuffer.preencode(state, m.pointer)
-        break
       case t.REFERENCE:
         break
       case t.URL:
@@ -798,6 +937,13 @@ const value = {
         value.preencode(state, m.buffer)
         c.uint.preencode(state, m.byteOffset)
         c.uint.preencode(state, m.byteLength)
+        break
+      case t.EXTERNAL:
+        c.arraybuffer.preencode(state, m.pointer)
+        break
+      case t.SERIALIZABLE:
+        c.uint.preencode(state, m.interface)
+        value.preencode(state, m.value)
         break
     }
   },
@@ -879,9 +1025,6 @@ const value = {
       case t.OBJECT:
         properties.encode(state, m.properties)
         break
-      case t.EXTERNAL:
-        c.arraybuffer.encode(state, m.pointer)
-        break
       case t.REFERENCE:
         break
       case t.URL:
@@ -891,6 +1034,13 @@ const value = {
         value.encode(state, m.buffer)
         c.uint.encode(state, m.byteOffset)
         c.uint.encode(state, m.byteLength)
+        break
+      case t.EXTERNAL:
+        c.arraybuffer.encode(state, m.pointer)
+        break
+      case t.SERIALIZABLE:
+        c.uint.encode(state, m.interface)
+        value.encode(state, m.value)
         break
     }
   },
@@ -1035,6 +1185,12 @@ const value = {
         type,
         id,
         pointer: c.arraybuffer.decode(state)
+      }
+      case t.SERIALIZABLE: return {
+        type,
+        id,
+        interface: c.uint.decode(state),
+        value: value.decode(state)
       }
     }
   }
