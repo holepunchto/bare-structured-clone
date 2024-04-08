@@ -35,9 +35,9 @@ exports.constants = constants
 exports.errors = errors
 
 exports.Serializable = class Serializable {
-  [Symbol.for('bare.serialize')] () {}
+  [Symbol.for('bare.serialize')] (forStorage) {}
 
-  static [Symbol.for('bare.deserialize')] () {}
+  static [Symbol.for('bare.deserialize')] (serialized) {}
 }
 
 exports.Transferable = class Transferable {
@@ -49,7 +49,7 @@ exports.Transferable = class Transferable {
     this.detached = true
   }
 
-  static [Symbol.for('bare.attach')] () {}
+  static [Symbol.for('bare.attach')] (serialized) {}
 }
 
 class InterfaceMap {
