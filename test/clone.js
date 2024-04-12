@@ -4,10 +4,15 @@ const structuredClone = require('..')
 
 const { constants: { type }, serialize, deserialize } = structuredClone
 
-function clone (t, value, expected) {
+function clone (t, value, interfaces, expected) {
+  if (!Array.isArray(interfaces)) {
+    expected = interfaces
+    interfaces = []
+  }
+
   t.comment(value)
 
-  let serialized = serialize(value)
+  let serialized = serialize(value, false, interfaces)
   t.alike(serialized, typeof expected === 'function' ? expected(serialized) : expected, 'serializes as expected')
 
   const buffer = c.encode(structuredClone, serialized)
@@ -16,7 +21,7 @@ function clone (t, value, expected) {
   serialized = c.decode(structuredClone, buffer)
   t.ok(serialized, 'decodes from a buffer')
 
-  const deserialized = deserialize(serialized)
+  const deserialized = deserialize(serialized, interfaces)
 
   t.alike(deserialized, value, 'deserializes as expected')
 }
@@ -559,4 +564,47 @@ test('clone buffer', (t) => {
     byteOffset: 0,
     byteLength: 4
   })
+})
+
+test('clone serializable', (t) => {
+  class Foo {
+    constructor () {
+      this.foo = 'foo'
+    }
+
+    [Symbol.for('bare.serialize')] () {
+      return this.foo
+    }
+
+    static [Symbol.for('bare.deserialize')] (serialized) {
+      t.is(serialized, 'foo')
+
+      return new Foo()
+    }
+  }
+
+  const foo = new Foo()
+
+  clone(t, foo, [Foo], {
+    type: type.SERIALIZABLE,
+    id: 1,
+    interface: 1,
+    value: {
+      type: type.STRING,
+      value: 'foo'
+    }
+  })
+})
+
+test('clone serializable, unregistered', (t) => {
+  class Foo {
+    [Symbol.for('bare.serialize')] () {}
+  }
+
+  try {
+    serialize(new Foo())
+    t.fail()
+  } catch (err) {
+    t.comment(err.message)
+  }
 })

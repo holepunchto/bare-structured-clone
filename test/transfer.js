@@ -4,10 +4,15 @@ const structuredClone = require('..')
 
 const { constants: { type }, serializeWithTransfer, deserializeWithTransfer } = structuredClone
 
-function transfer (t, from, to, transferList, expected) {
+function transfer (t, from, to, transferList, interfaces, expected) {
+  if (!Array.isArray(interfaces)) {
+    expected = interfaces
+    interfaces = []
+  }
+
   t.comment(from)
 
-  let serialized = serializeWithTransfer(from, transferList)
+  let serialized = serializeWithTransfer(from, transferList, interfaces)
   t.alike(serialized, typeof expected === 'function' ? expected(serialized) : expected, 'serializes as expected')
 
   const buffer = c.encode(structuredClone, serialized)
@@ -16,7 +21,7 @@ function transfer (t, from, to, transferList, expected) {
   serialized = c.decode(structuredClone, buffer)
   t.ok(serialized, 'decodes from a buffer')
 
-  const deserialized = deserializeWithTransfer(serialized)
+  const deserialized = deserializeWithTransfer(serialized, interfaces)
   t.alike(deserialized, to, 'deserializes as expected')
 }
 
@@ -117,4 +122,59 @@ test('transfer arraybuffer in object', (t) => {
       }
     }
   })
+})
+
+test('transfer transferable', (t) => {
+  class Foo {
+    constructor () {
+      this.detached = false
+    }
+
+    [Symbol.for('bare.detach')] () {
+      this.detached = true
+
+      return 1234
+    }
+
+    static [Symbol.for('bare.attach')] (value) {
+      t.is(value, 1234)
+
+      return new Foo()
+    }
+  }
+
+  const from = new Foo()
+  const to = new Foo()
+
+  transfer(t, from, to, [from], [Foo], () => {
+    t.ok(from.detached, 'value is detached')
+
+    return {
+      type: type.TRANSFER,
+      transfers: [
+        {
+          type: type.TRANSFERABLE,
+          id: 1,
+          interface: 1,
+          value: { type: type.NUMBER, value: 1234 }
+        }
+      ],
+      value: { type: type.REFERENCE, id: 1 }
+    }
+  })
+})
+
+test('transfer transferable, unregistered', (t) => {
+  class Foo {
+    [Symbol.for('bare.detach')] () {}
+  }
+
+  const foo = new Foo()
+
+  try {
+    serializeWithTransfer(foo, [foo])
+    t.fail()
+  } catch (err) {
+    t.comment(err.message)
+  }
 })
