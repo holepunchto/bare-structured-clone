@@ -420,7 +420,7 @@ function serializeSerializable (value, serializer, forStorage, interfaces, refer
     type: t.SERIALIZABLE,
     id: references.id(value),
     interface: interfaces.id(value.constructor),
-    value: serializeValue(serializer.call(value, forStorage))
+    value: serializeValue(serializer.call(value, forStorage), forStorage, interfaces, references)
   }
 }
 
@@ -493,7 +493,7 @@ function serializeValueWithTransfer (value, transferList, interfaces) {
         type: t.TRANSFERABLE,
         id: references.id(transferable),
         interface: interfaces.id(transferable.constructor),
-        value: serializeValue(detach.call(transferable))
+        value: serializeValue(detach.call(transferable), false, interfaces, references)
       }
 
       transfers.push(transfer)
