@@ -404,14 +404,13 @@ function serializeBuffer (value, forStorage, interfaces, references) {
   }
 }
 
-function serializeExternal (value, forStorage, references) {
+function serializeExternal (value, forStorage) {
   if (forStorage) {
     throw errors.UNSERIALIZABLE_TYPE('External pointer cannot be serialized to storage')
   }
 
   return {
     type: t.EXTERNAL,
-    id: references.id(value),
     pointer: binding.getExternal(value)
   }
 }
@@ -520,6 +519,8 @@ function deserializeValue (serialized, interfaces, references) {
     case t.NUMBER:
     case t.BIGINT:
     case t.STRING: return serialized.value
+
+    case t.EXTERNAL: return binding.createExternal(serialized.pointer)
 
     case t.DATE:
       value = new Date(serialized.value)
@@ -663,10 +664,6 @@ function deserializeValue (serialized, interfaces, references) {
 
     case t.BUFFER:
       value = Buffer.from(deserializeValue(serialized.buffer, interfaces, references), serialized.byteOffset, serialized.byteLength)
-      break
-
-    case t.EXTERNAL:
-      value = binding.createExternal(serialized.pointer)
       break
 
     case t.SERIALIZABLE: {
@@ -870,6 +867,8 @@ const value = {
         return c.bigint.preencode(state, m.value)
       case t.STRING:
         return c.string.preencode(state, m.value)
+      case t.EXTERNAL:
+        return c.arraybuffer.preencode(state, m.pointer)
       case t.TRANSFER:
         transfers.preencode(state, m.transfers)
         value.preencode(state, m.value)
@@ -943,9 +942,6 @@ const value = {
         c.uint.preencode(state, m.byteOffset)
         c.uint.preencode(state, m.byteLength)
         break
-      case t.EXTERNAL:
-        c.arraybuffer.preencode(state, m.pointer)
-        break
       case t.SERIALIZABLE:
         c.uint.preencode(state, m.interface)
         value.preencode(state, m.value)
@@ -967,6 +963,8 @@ const value = {
         return c.bigint.encode(state, m.value)
       case t.STRING:
         return c.string.encode(state, m.value)
+      case t.EXTERNAL:
+        return c.arraybuffer.encode(state, m.pointer)
       case t.TRANSFER:
         transfers.encode(state, m.transfers)
         value.encode(state, m.value)
@@ -1040,9 +1038,6 @@ const value = {
         c.uint.encode(state, m.byteOffset)
         c.uint.encode(state, m.byteLength)
         break
-      case t.EXTERNAL:
-        c.arraybuffer.encode(state, m.pointer)
-        break
       case t.SERIALIZABLE:
         c.uint.encode(state, m.interface)
         value.encode(state, m.value)
@@ -1070,6 +1065,10 @@ const value = {
       case t.STRING: return {
         type,
         value: c.string.decode(state)
+      }
+      case t.EXTERNAL: return {
+        type,
+        pointer: c.arraybuffer.decode(state)
       }
       case t.TRANSFER: return {
         type,
@@ -1185,11 +1184,6 @@ const value = {
         buffer: value.decode(state),
         byteOffset: c.uint.decode(state),
         byteLength: c.uint.decode(state)
-      }
-      case t.EXTERNAL: return {
-        type,
-        id,
-        pointer: c.arraybuffer.decode(state)
       }
       case t.SERIALIZABLE: return {
         type,
