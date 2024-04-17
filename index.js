@@ -1,3 +1,4 @@
+const getType = require('bare-type')
 const c = require('compact-encoding')
 const bitfield = require('compact-encoding-bitfield')
 const bits = require('bits-to-bytes')
@@ -110,19 +111,18 @@ class ReferenceMap {
 }
 
 function serializeValue (value, forStorage, interfaces, references) {
-  switch (typeof value) {
-    case 'undefined': return { type: t.UNDEFINED }
-    case 'boolean': return { type: value ? t.TRUE : t.FALSE }
-    case 'number': return { type: t.NUMBER, value }
-    case 'bigint': return { type: t.BIGINT, value }
-    case 'string': return serializeString(value)
-    case 'symbol': return serializeSymbol(value)
-    case 'function': return serializeFunction(value)
-  }
+  const type = getType(value)
 
-  if (value === null) return { type: t.NULL }
-
-  return serializeReferenceable(value, forStorage, interfaces, references)
+  if (type.isUndefined()) return { type: t.UNDEFINED }
+  if (type.isNull()) return { type: t.NULL }
+  if (type.isBoolean()) return { type: value ? t.TRUE : t.FALSE }
+  if (type.isNumber()) return { type: t.NUMBER, value }
+  if (type.isBigInt()) return { type: t.BIGINT, value }
+  if (type.isString()) return serializeString(value)
+  if (type.isSymbol()) return serializeSymbol(value)
+  if (type.isObject()) return serializeReferenceable(type, value, forStorage, interfaces, references)
+  if (type.isFunction()) return serializeFunction(value)
+  if (type.isExternal()) return serializeExternal(value, forStorage, references)
 }
 
 function serializeString (value) {
@@ -137,28 +137,29 @@ function serializeFunction (value) {
   throw errors.UNSERIALIZABLE_TYPE(`Function '${value.name}' cannot be serialized`)
 }
 
-function serializeReferenceable (value, forStorage, interfaces, references) {
+function serializeReferenceable (type, value, forStorage, interfaces, references) {
   if (references.has(value)) return serializeReference(value, references)
 
-  if (value instanceof Date) return serializeDate(value, references)
-  if (value instanceof RegExp) return serializeRegExp(value, references)
-  if (value instanceof Error) return serializeError(value, forStorage, interfaces, references)
-  if (value instanceof ArrayBuffer) return serializeArrayBuffer(value, references)
-  if (value instanceof SharedArrayBuffer) return serializeSharedArrayBuffer(value, forStorage, references)
-  if (value instanceof DataView) return serializeDataView(value, forStorage, interfaces, references)
-  if (value instanceof Buffer) return serializeBuffer(value, forStorage, interfaces, references)
-  if (ArrayBuffer.isView(value)) return serializeTypedArray(value, forStorage, interfaces, references)
-  if (value instanceof Map) return serializeMap(value, forStorage, interfaces, references)
-  if (value instanceof Set) return serializeSet(value, forStorage, interfaces, references)
-  if (value instanceof Array) return serializeArray(value, forStorage, interfaces, references)
   if (value instanceof URL) return serializeURL(value, references)
-  if (binding.isExternal(value)) return serializeExternal(value, forStorage, interfaces, references)
+  if (value instanceof Buffer) return serializeBuffer(value, forStorage, interfaces, references)
+
+  if (type.isArray()) return serializeArray(value, forStorage, interfaces, references)
+  if (type.isDate()) return serializeDate(value, references)
+  if (type.isRegExp()) return serializeRegExp(value, references)
+  if (type.isError()) return serializeError(value, forStorage, interfaces, references)
+  if (type.isMap()) return serializeMap(value, forStorage, interfaces, references)
+  if (type.isSet()) return serializeSet(value, forStorage, interfaces, references)
+  if (type.isArrayBuffer()) return serializeArrayBuffer(value, references)
+  if (type.isSharedArrayBuffer()) return serializeSharedArrayBuffer(value, forStorage, references)
+  if (type.isTypedArray()) return serializeTypedArray(type, value, forStorage, interfaces, references)
+  if (type.isDataView()) return serializeDataView(value, forStorage, interfaces, references)
 
   if (
-    value instanceof Promise ||
-    value instanceof WeakMap ||
-    value instanceof WeakSet ||
-    value instanceof WeakRef
+    type.isPromise() ||
+    type.isProxy() ||
+    type.isWeakMap() ||
+    type.isWeakSet() ||
+    type.isWeakRef()
   ) {
     throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
   }
@@ -278,30 +279,30 @@ function serializeSharedArrayBuffer (value, forStorage, references) {
   }
 }
 
-function serializeTypedArray (value, forStorage, interfaces, references) {
+function serializeTypedArray (type, value, forStorage, interfaces, references) {
   let view
 
-  if (value instanceof Uint8Array) {
+  if (type.isUint8Array()) {
     view = t.typedarray.UINT8ARRAY
-  } else if (value instanceof Uint8ClampedArray) {
+  } else if (type.isUint8ClampedArray()) {
     view = t.typedarray.UINT8CLAMPEDARRAY
-  } else if (value instanceof Int8Array) {
+  } else if (type.isInt8Array()) {
     view = t.typedarray.INT8ARRAY
-  } else if (value instanceof Uint16Array) {
+  } else if (type.isUint16Array()) {
     view = t.typedarray.UINT16ARRAY
-  } else if (value instanceof Int16Array) {
+  } else if (type.isInt16Array()) {
     view = t.typedarray.INT16ARRAY
-  } else if (value instanceof Uint32Array) {
+  } else if (type.isUint32Array()) {
     view = t.typedarray.UINT32ARRAY
-  } else if (value instanceof Int32Array) {
+  } else if (type.isInt32Array()) {
     view = t.typedarray.INT32ARRAY
-  } else if (value instanceof BigUint64Array) {
+  } else if (type.isBigUint64Array()) {
     view = t.typedarray.BIGUINT64ARRAY
-  } else if (value instanceof BigInt64Array) {
+  } else if (type.isBigInt64Array()) {
     view = t.typedarray.BIGINT64ARRAY
-  } else if (value instanceof Float32Array) {
+  } else if (type.isFloat32Array()) {
     view = t.typedarray.FLOAT32ARRAY
-  } else if (value instanceof Float64Array) {
+  } else if (type.isFloat64Array()) {
     view = t.typedarray.FLOAT64ARRAY
   }
 
@@ -428,7 +429,9 @@ function serializeValueWithTransfer (value, transferList, interfaces) {
   const references = new ReferenceMap()
 
   for (const transferable of transferList) {
-    if (transferable instanceof ArrayBuffer) {
+    const type = getType(transferable)
+
+    if (type.isArrayBuffer()) {
       if (transferable.detached) {
         throw errors.UNTRANSFERABLE_TYPE('Detached \'ArrayBuffer\' cannot be transferred')
       }
@@ -462,7 +465,9 @@ function serializeValueWithTransfer (value, transferList, interfaces) {
   const transfers = []
 
   for (const transferable of transferList) {
-    if (transferable instanceof ArrayBuffer) {
+    const type = getType(transferable)
+
+    if (type.isArrayBuffer()) {
       if (transferable.detached) {
         throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
       }
