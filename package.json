@@ -30,6 +30,9 @@
     "url": "https://github.com/holepunchto/bare-structured-clone/issues"
   },
   "homepage": "https://github.com/holepunchto/bare-structured-clone#readme",
+  "engines": {
+    "bare": ">=1.2.0"
+  },
   "dependencies": {
     "bare-type": "^1.0.0",
     "bits-to-bytes": "^1.3.0",
