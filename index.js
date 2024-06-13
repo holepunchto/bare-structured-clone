@@ -140,8 +140,8 @@ function serializeFunction (value) {
 function serializeReferenceable (type, value, forStorage, interfaces, references) {
   if (references.has(value)) return serializeReference(value, references)
 
-  if (value instanceof URL) return serializeURL(value, references)
-  if (value instanceof Buffer) return serializeBuffer(value, forStorage, interfaces, references)
+  if (URL.isURL(value)) return serializeURL(value, references)
+  if (Buffer.isBuffer(value)) return serializeBuffer(value, forStorage, interfaces, references)
 
   if (type.isArray()) return serializeArray(value, forStorage, interfaces, references)
   if (type.isDate()) return serializeDate(value, references)
