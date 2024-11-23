@@ -20,7 +20,7 @@
   ],
   "addon": true,
   "scripts": {
-    "test": "standard && bare test/all.js"
+    "test": "prettier . --check && bare test/all.js"
   },
   "repository": {
     "type": "git",
