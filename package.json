@@ -5,11 +5,13 @@
   "exports": {
     ".": "./index.js",
     "./package": "./package.json",
+    "./global": "./global.js",
     "./constants": "./lib/constants.js",
     "./errors": "./lib/errors.js"
   },
   "files": [
     "index.js",
+    "global.js",
     "binding.c",
     "binding.js",
     "CMakeLists.txt",
