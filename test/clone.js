@@ -2,9 +2,13 @@ const test = require('brittle')
 const c = require('compact-encoding')
 const structuredClone = require('..')
 
-const { constants: { type }, serialize, deserialize } = structuredClone
+const {
+  constants: { type },
+  serialize,
+  deserialize
+} = structuredClone
 
-function clone (t, value, interfaces, expected) {
+function clone(t, value, interfaces, expected) {
   if (!Array.isArray(interfaces)) {
     expected = interfaces
     interfaces = []
@@ -13,7 +17,11 @@ function clone (t, value, interfaces, expected) {
   t.comment(value)
 
   let serialized = serialize(value, false, interfaces)
-  t.alike(serialized, typeof expected === 'function' ? expected(serialized) : expected, 'serializes as expected')
+  t.alike(
+    serialized,
+    typeof expected === 'function' ? expected(serialized) : expected,
+    'serializes as expected'
+  )
 
   const buffer = c.encode(structuredClone, serialized)
   t.ok(buffer instanceof Buffer, 'encodes to a buffer')
@@ -78,8 +86,18 @@ test('clone date', (t) => {
 })
 
 test('clone regexp', (t) => {
-  clone(t, /he(ll)o [world]+/, { type: type.REGEXP, id: 1, source: 'he(ll)o [world]+', flags: '' })
-  clone(t, /he(ll)o [world]+/ig, { type: type.REGEXP, id: 1, source: 'he(ll)o [world]+', flags: 'gi' })
+  clone(t, /he(ll)o [world]+/, {
+    type: type.REGEXP,
+    id: 1,
+    source: 'he(ll)o [world]+',
+    flags: ''
+  })
+  clone(t, /he(ll)o [world]+/gi, {
+    type: type.REGEXP,
+    id: 1,
+    source: 'he(ll)o [world]+',
+    flags: 'gi'
+  })
 })
 
 test('clone error', (t) => {
@@ -170,16 +188,18 @@ test('clone aggregate error', (t) => {
       type: type.STRING,
       value: aggregateErr.stack
     },
-    errors: [{
-      type: type.ERROR,
-      id: 2,
-      name: 0,
-      message: 'err',
-      stack: {
-        type: type.STRING,
-        value: err.stack
+    errors: [
+      {
+        type: type.ERROR,
+        id: 2,
+        name: 0,
+        message: 'err',
+        stack: {
+          type: type.STRING,
+          value: err.stack
+        }
       }
-    }]
+    ]
   })
 })
 
@@ -187,7 +207,9 @@ test('clone aggregate error with cause', (t) => {
   const err = new Error('err')
   err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
 
-  const aggregateErr = new AggregateError([err], 'aggregate err', { cause: 'err cause' })
+  const aggregateErr = new AggregateError([err], 'aggregate err', {
+    cause: 'err cause'
+  })
   aggregateErr.stack = `${aggregateErr.name}: ${aggregateErr.message}\n    at file:///foo/bar.js`
 
   clone(t, aggregateErr, {
@@ -203,16 +225,18 @@ test('clone aggregate error with cause', (t) => {
       type: type.STRING,
       value: 'err cause'
     },
-    errors: [{
-      type: type.ERROR,
-      id: 2,
-      name: 0,
-      message: 'err',
-      stack: {
-        type: type.STRING,
-        value: err.stack
+    errors: [
+      {
+        type: type.ERROR,
+        id: 2,
+        name: 0,
+        message: 'err',
+        stack: {
+          type: type.STRING,
+          value: err.stack
+        }
       }
-    }]
+    ]
   })
 })
 
@@ -249,7 +273,10 @@ test('clone sharedarraybuffer', (t) => {
   Buffer.from(buf).set([1, 2, 3, 4])
 
   clone(t, buf, (serialized) => {
-    t.ok(serialized.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
+    t.ok(
+      serialized.backingStore instanceof ArrayBuffer,
+      'backing store is a buffer'
+    )
 
     return {
       type: type.SHAREDARRAYBUFFER,
@@ -265,7 +292,10 @@ test('clone growable sharedarraybuffer', (t) => {
   Buffer.from(buf).set([1, 2, 3, 4])
 
   clone(t, buf, (serialized) => {
-    t.ok(serialized.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
+    t.ok(
+      serialized.backingStore instanceof ArrayBuffer,
+      'backing store is a buffer'
+    )
 
     return {
       type: type.GROWABLESHAREDARRAYBUFFER,
@@ -417,20 +447,27 @@ test('clone dataview', (t) => {
 })
 
 test('clone map', (t) => {
-  clone(t, new Map([['foo', 42], [1, true]]), {
-    type: type.MAP,
-    id: 1,
-    data: [
-      {
-        key: { type: type.STRING, value: 'foo' },
-        value: { type: type.NUMBER, value: 42 }
-      },
-      {
-        key: { type: type.NUMBER, value: 1 },
-        value: { type: type.TRUE }
-      }
-    ]
-  })
+  clone(
+    t,
+    new Map([
+      ['foo', 42],
+      [1, true]
+    ]),
+    {
+      type: type.MAP,
+      id: 1,
+      data: [
+        {
+          key: { type: type.STRING, value: 'foo' },
+          value: { type: type.NUMBER, value: 42 }
+        },
+        {
+          key: { type: type.NUMBER, value: 1 },
+          value: { type: type.TRUE }
+        }
+      ]
+    }
+  )
 })
 
 test('clone circular map', (t) => {
@@ -468,9 +505,7 @@ test('clone circular set', (t) => {
   clone(t, set, {
     type: type.SET,
     id: 1,
-    data: [
-      { type: type.REFERENCE, id: 1 }
-    ]
+    data: [{ type: type.REFERENCE, id: 1 }]
   })
 })
 
@@ -484,8 +519,7 @@ test('clone array', (t) => {
       { key: '1', value: { type: type.STRING, value: 'hello' } },
       { key: '2', value: { type: type.TRUE } }
     ]
-  }
-  )
+  })
 })
 
 test('clone circular array', (t) => {
@@ -496,9 +530,7 @@ test('clone circular array', (t) => {
     type: type.ARRAY,
     id: 1,
     length: 1,
-    properties: [
-      { key: '0', value: { type: type.REFERENCE, id: 1 } }
-    ]
+    properties: [{ key: '0', value: { type: type.REFERENCE, id: 1 } }]
   })
 })
 
@@ -516,20 +548,23 @@ test('clone array with additional property', (t) => {
       { key: '2', value: { type: type.TRUE } },
       { key: 'foo', value: { type: type.STRING, value: 'bar' } }
     ]
-  }
-  )
+  })
 })
 
 test('clone object', (t) => {
-  clone(t, { foo: 42, bar: 'hello', baz: true }, {
-    type: type.OBJECT,
-    id: 1,
-    properties: [
-      { key: 'foo', value: { type: type.NUMBER, value: 42 } },
-      { key: 'bar', value: { type: type.STRING, value: 'hello' } },
-      { key: 'baz', value: { type: type.TRUE } }
-    ]
-  })
+  clone(
+    t,
+    { foo: 42, bar: 'hello', baz: true },
+    {
+      type: type.OBJECT,
+      id: 1,
+      properties: [
+        { key: 'foo', value: { type: type.NUMBER, value: 42 } },
+        { key: 'bar', value: { type: type.STRING, value: 'hello' } },
+        { key: 'baz', value: { type: type.TRUE } }
+      ]
+    }
+  )
 })
 
 test('clone circular object', (t) => {
@@ -539,14 +574,16 @@ test('clone circular object', (t) => {
   clone(t, obj, {
     type: type.OBJECT,
     id: 1,
-    properties: [
-      { key: 'self', value: { type: type.REFERENCE, id: 1 } }
-    ]
+    properties: [{ key: 'self', value: { type: type.REFERENCE, id: 1 } }]
   })
 })
 
 test('clone url', (t) => {
-  clone(t, new URL('https://example.org'), { type: type.URL, id: 1, href: 'https://example.org/' })
+  clone(t, new URL('https://example.org'), {
+    type: type.URL,
+    id: 1,
+    href: 'https://example.org/'
+  })
 })
 
 test('clone buffer', (t) => {
@@ -568,15 +605,15 @@ test('clone buffer', (t) => {
 
 test('clone serializable', (t) => {
   class Foo {
-    constructor () {
+    constructor() {
       this.foo = 'foo'
     }
 
-    [Symbol.for('bare.serialize')] () {
+    [Symbol.for('bare.serialize')]() {
       return this.foo
     }
 
-    static [Symbol.for('bare.deserialize')] (serialized) {
+    static [Symbol.for('bare.deserialize')](serialized) {
       t.is(serialized, 'foo')
 
       return new Foo()
@@ -598,7 +635,7 @@ test('clone serializable', (t) => {
 
 test('clone serializable, unregistered', (t) => {
   class Foo {
-    [Symbol.for('bare.serialize')] () {}
+    [Symbol.for('bare.serialize')]() {}
   }
 
   try {

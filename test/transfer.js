@@ -2,9 +2,13 @@ const test = require('brittle')
 const c = require('compact-encoding')
 const structuredClone = require('..')
 
-const { constants: { type }, serializeWithTransfer, deserializeWithTransfer } = structuredClone
+const {
+  constants: { type },
+  serializeWithTransfer,
+  deserializeWithTransfer
+} = structuredClone
 
-function transfer (t, from, to, transferList, interfaces, expected) {
+function transfer(t, from, to, transferList, interfaces, expected) {
   if (!Array.isArray(interfaces)) {
     expected = interfaces
     interfaces = []
@@ -13,7 +17,11 @@ function transfer (t, from, to, transferList, interfaces, expected) {
   t.comment(from)
 
   let serialized = serializeWithTransfer(from, transferList, interfaces)
-  t.alike(serialized, typeof expected === 'function' ? expected(serialized) : expected, 'serializes as expected')
+  t.alike(
+    serialized,
+    typeof expected === 'function' ? expected(serialized) : expected,
+    'serializes as expected'
+  )
 
   const buffer = c.encode(structuredClone, serialized)
   t.ok(buffer instanceof Buffer, 'encodes to a buffer')
@@ -58,7 +66,12 @@ test('transfer resizable arraybuffer', (t) => {
     return {
       type: type.TRANSFER,
       transfers: [
-        { type: type.RESIZABLEARRAYBUFFER, id: 1, backingStore: buf.backingStore, maxByteLength: 8 }
+        {
+          type: type.RESIZABLEARRAYBUFFER,
+          id: 1,
+          backingStore: buf.backingStore,
+          maxByteLength: 8
+        }
       ],
       value: { type: type.REFERENCE, id: 1 }
     }
@@ -126,17 +139,17 @@ test('transfer arraybuffer in object', (t) => {
 
 test('transfer transferable', (t) => {
   class Foo {
-    constructor () {
+    constructor() {
       this.detached = false
     }
 
-    [Symbol.for('bare.detach')] () {
+    [Symbol.for('bare.detach')]() {
       this.detached = true
 
       return 1234
     }
 
-    static [Symbol.for('bare.attach')] (value) {
+    static [Symbol.for('bare.attach')](value) {
       t.is(value, 1234)
 
       return new Foo()
@@ -166,7 +179,7 @@ test('transfer transferable', (t) => {
 
 test('transfer transferable, unregistered', (t) => {
   class Foo {
-    [Symbol.for('bare.detach')] () {}
+    [Symbol.for('bare.detach')]() {}
   }
 
   const foo = new Foo()
