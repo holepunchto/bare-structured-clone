@@ -3,7 +3,10 @@
   "version": "1.3.0",
   "description": "Structured cloning algorithm for JavaScript",
   "exports": {
-    ".": "./index.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
     "./package": "./package.json",
     "./global": "./global.js",
     "./constants": "./lib/constants.js",
@@ -11,6 +14,7 @@
   },
   "files": [
     "index.js",
+    "index.d.ts",
     "global.js",
     "binding.c",
     "binding.js",
