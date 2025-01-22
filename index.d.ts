@@ -360,7 +360,9 @@ declare class DataCloneError extends Error {
   static INVALID_INTERFACE(msg: string): DataCloneError
 }
 
-declare function structuredClone<T extends SerializableValue>(
+declare function structuredClone<
+  T extends SerializableValue | TransferableValue
+>(
   value: T,
   opts?: {
     transfer: TransferableValue[]
