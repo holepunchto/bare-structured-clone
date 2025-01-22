@@ -375,7 +375,7 @@ declare function serialize(
 ): SerializedValue
 
 declare function serializeWithTransfer(
-  value: SerializableValue,
+  value: SerializableValue | TransferableValue,
   transferList?: TransferableValue[],
   interfaces?: (SerializableConstructor | TransferableConstructor)[]
 ): SerializedTransfer
@@ -385,7 +385,9 @@ declare function deserialize<T extends SerializableValue>(
   interfaces?: (SerializableConstructor | TransferableConstructor)[]
 ): T
 
-declare function deserializeWithTransfer<T extends SerializableValue>(
+declare function deserializeWithTransfer<
+  T extends SerializableValue | TransferableValue
+>(
   serialized: SerializedTransfer,
   interfaces?: (SerializableConstructor | TransferableConstructor)[]
 ): T
