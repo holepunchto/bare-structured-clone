@@ -4,6 +4,7 @@ const structuredClone = require('..')
 
 const {
   constants: { type },
+  symbols,
   serializeWithTransfer,
   deserializeWithTransfer
 } = structuredClone
@@ -143,13 +144,13 @@ test('transfer transferable', (t) => {
       this.detached = false
     }
 
-    [Symbol.for('bare.detach')]() {
+    [symbols.detach]() {
       this.detached = true
 
       return 1234
     }
 
-    static [Symbol.for('bare.attach')](value) {
+    static [symbols.attach](value) {
       t.is(value, 1234)
 
       return new Foo()
@@ -179,7 +180,7 @@ test('transfer transferable', (t) => {
 
 test('transfer transferable, unregistered', (t) => {
   class Foo {
-    [Symbol.for('bare.detach')]() {}
+    [symbols.detach]() {}
   }
 
   const foo = new Foo()

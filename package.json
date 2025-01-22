@@ -24,7 +24,7 @@
   ],
   "addon": true,
   "scripts": {
-    "test": "prettier . --check && bare test/all.js"
+    "test": "prettier . --check && bare test.js"
   },
   "repository": {
     "type": "git",
@@ -46,9 +46,23 @@
     "compact-encoding-bitfield": "^1.0.0"
   },
   "devDependencies": {
+    "bare-buffer": "^3.0.1",
+    "bare-url": "^2.1.1",
     "brittle": "^3.1.1",
     "cmake-bare": "^1.1.6",
     "prettier": "^3.3.3",
     "prettier-config-standard": "^7.0.0"
+  },
+  "peerDependencies": {
+    "bare-buffer": "*",
+    "bare-url": "*"
+  },
+  "peerDependenciesMeta": {
+    "bare-buffer": {
+      "optional": true
+    },
+    "bare-url": {
+      "optional": true
+    }
   }
 }

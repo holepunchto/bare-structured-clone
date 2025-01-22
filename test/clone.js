@@ -4,6 +4,7 @@ const structuredClone = require('..')
 
 const {
   constants: { type },
+  symbols,
   serialize,
   deserialize
 } = structuredClone
@@ -609,11 +610,11 @@ test('clone serializable', (t) => {
       this.foo = 'foo'
     }
 
-    [Symbol.for('bare.serialize')]() {
+    [symbols.serialize]() {
       return this.foo
     }
 
-    static [Symbol.for('bare.deserialize')](serialized) {
+    static [symbols.deserialize](serialized) {
       t.is(serialized, 'foo')
 
       return new Foo()
@@ -635,7 +636,7 @@ test('clone serializable', (t) => {
 
 test('clone serializable, unregistered', (t) => {
   class Foo {
-    [Symbol.for('bare.serialize')]() {}
+    [symbols.serialize]() {}
   }
 
   try {

@@ -1,2 +1,0 @@
-require('./clone')
-require('./transfer')

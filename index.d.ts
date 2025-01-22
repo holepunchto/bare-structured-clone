@@ -1,14 +1,5 @@
-declare global {
-  interface SymbolConstructor {
-    readonly bare: {
-      readonly serialize: unique symbol
-      readonly deserialize: unique symbol
-
-      readonly detach: unique symbol
-      readonly attach: unique symbol
-    }
-  }
-}
+import Buffer from 'bare-buffer'
+import URL from 'bare-url'
 
 declare const constants: {
   VERSION: number
@@ -81,26 +72,47 @@ declare const constants: {
   }
 }
 
-declare function structuredClone<T extends unknown>(
-  value: T,
-  opts?: { transfer: T[]; interfaces: unknown }
-): T
-
-interface SerializedType<T extends undefined | null | true | false> {
-  type: T extends undefined
-    ? typeof constants.type.UNDEFINED
-    : T extends null
-      ? typeof constants.type.NULL
-      : typeof constants.type.TRUE | typeof constants.type.FALSE
+declare const symbols: {
+  readonly serialize: unique symbol
+  readonly deserialize: unique symbol
+  readonly detach: unique symbol
+  readonly attach: unique symbol
 }
 
-interface SerializedValue<T extends number | bigint | string> {
-  type: T extends number
-    ? typeof constants.type.NUMBER
-    : T extends bigint
-      ? typeof constants.type.BIGINT
-      : typeof constants.type.STRING
-  value: T
+interface SerializedUndefined {
+  type: typeof constants.type.UNDEFINED
+}
+
+interface SerializedNull {
+  type: typeof constants.type.NULL
+}
+
+interface SerializedTrue {
+  type: typeof constants.type.TRUE
+}
+
+interface SerializedFalse {
+  type: typeof constants.type.FALSE
+}
+
+interface SerializedNumber {
+  type: typeof constants.type.NUMBER
+  value: number
+}
+
+interface SerializedBigInt {
+  type: typeof constants.type.BIGINT
+  value: bigint
+}
+
+interface SerializedString {
+  type: typeof constants.type.STRING
+  value: string
+}
+
+interface SerializedExternal {
+  type: typeof constants.type.EXTERNAL
+  value: ArrayBuffer
 }
 
 interface SerializedDate {
@@ -121,9 +133,9 @@ interface SerializedError {
   id: number
   name: number
   message: string
-  stack: { type: number; value: string }
-  cause?: { type: number; value: unknown }
-  errors?: SerializedError[]
+  stack: SerializedValue
+  cause?: SerializedValue
+  errors?: SerializedValue[]
 }
 
 interface SerializedArrayBuffer {
@@ -131,14 +143,27 @@ interface SerializedArrayBuffer {
   id: number
   owned: boolean
   data: ArrayBuffer
-  maxByteLength?: number
+}
+
+interface SerializedResizableArrayBuffer {
+  type: typeof constants.type.RESIZABLEARRAYBUFFER
+  id: number
+  owned: boolean
+  data: ArrayBuffer
+  maxByteLength: number
 }
 
 interface SerializedSharedArrayBuffer {
   type: typeof constants.type.SHAREDARRAYBUFFER
   id: number
   backingStore: ArrayBuffer
-  maxByteLength?: number
+}
+
+interface SerializedGrowableSharedArrayBuffer {
+  type: typeof constants.type.GROWABLESHAREDARRAYBUFFER
+  id: number
+  backingStore: ArrayBuffer
+  maxByteLength: number
 }
 
 interface SerializedTypedArray {
@@ -151,34 +176,42 @@ interface SerializedTypedArray {
   length: number
 }
 
-interface SerializedArray<T extends unknown> {
+interface SerializedDataView {
+  type: typeof constants.type.DATAVIEW
+  id: number
+  buffer: SerializedArrayBuffer
+  byteOffset: number
+  byteLength: number
+}
+
+interface SerializedMap {
+  type: typeof constants.type.MAP
+  id: number
+  data: { key: SerializedValue; value: SerializedValue }[]
+}
+
+interface SerializedSet {
+  type: typeof constants.type.SET
+  id: number
+  data: SerializedValue[]
+}
+
+interface SerializedArray {
   type: typeof constants.type.ARRAY
   id: number
   length: number
-  properties: { key: string; value: T }[]
+  properties: { key: string; value: SerializedValue }[]
 }
 
-interface SerializedObject<T extends unknown> {
+interface SerializedObject {
   type: typeof constants.type.OBJECT
   id: number
-  properties: { key: string | number | symbol; value: Serialized<T> }[]
+  properties: { key: string; value: SerializedValue }[]
 }
 
 interface SerializedReference {
   type: typeof constants.type.REFERENCE
   id: number
-}
-
-interface SerializedMap<K extends unknown, V extends unknown> {
-  type: typeof constants.type.MAP
-  id: number
-  data: { key: Serialized<K>; value: Serialized<V> }[]
-}
-
-interface SerializedSet<T extends unknown> {
-  type: typeof constants.type.SET
-  id: number
-  data: Serialized<T>[]
 }
 
 interface SerializedURL {
@@ -187,133 +220,136 @@ interface SerializedURL {
   href: string
 }
 
-interface SerializedTransferable<K extends unknown> {
+interface SerializedBuffer {
+  type: typeof constants.type.BUFFER
+  id: number
+  buffer: SerializedArrayBuffer
+  byteOffset: number
+  byteLength: number
+}
+
+interface SerializedSerializable {
+  type: typeof constants.type.SERIALIZABLE
+  id: number
+  interface: number
+  value: SerializedValue
+}
+
+interface SerializedArrayBufferTransfer {
+  type: typeof constants.type.ARRAYBUFFER
+  id: number
+  backingStore: ArrayBuffer
+}
+
+interface SerializedResizableArrayBufferTransfer {
+  type: typeof constants.type.RESIZABLEARRAYBUFFER
+  id: number
+  backingStore: ArrayBuffer
+  maxByteLength: number
+}
+
+interface SerializedTransferableTransfer {
   type: typeof constants.type.TRANSFERABLE
   id: number
   interface: number
-  value: Serialized<K>
+  value: SerializedValue
 }
 
-type Unwrap<T> = T extends (infer V)[] ? V : never
-type UnwrapMapKeys<M> = M extends Map<infer K, any> ? K : never
-type UnwrapMapValues<M> = M extends Map<any, infer V> ? V : never
-type UnwrapSet<S> = S extends Set<infer V> ? V : never
-type UnwrapObject<O> = O extends { [key: string | number | symbol]: infer V }
-  ? V
-  : never
-
-type Serialized<T extends unknown> = T extends undefined | null | boolean
-  ? SerializedType<T>
-  : T extends number | bigint | string
-    ? SerializedValue<T>
-    : T extends Date
-      ? SerializedDate
-      : T extends RegExp
-        ? SerializedRegExp
-        : T extends URL
-          ? SerializedURL
-          : T extends Error
-            ? SerializedError
-            : T extends ArrayBufferView
-              ? SerializedTypedArray
-              : T extends SharedArrayBuffer
-                ? SerializedSharedArrayBuffer
-                : T extends ArrayBuffer
-                  ? SerializedArrayBuffer
-                  : T extends Array<unknown>
-                    ? SerializedArray<Unwrap<T>>
-                    : T extends Map<unknown, unknown>
-                      ? SerializedMap<UnwrapMapKeys<T>, UnwrapMapValues<T>>
-                      : T extends { [key: string | number | symbol]: unknown }
-                        ? SerializedObject<UnwrapObject<T>>
-                        : T extends Set<unknown>
-                          ? SerializedSet<UnwrapSet<T>>
-                          : T extends Transferable
-                            ? SerializedTransferable<unknown>
-                            : void
-
-type SerializedWithTransfer<T extends unknown, V extends unknown> = {
+interface SerializedTransfer {
   type: typeof constants.type.TRANSFER
-  transfers: V extends Transferable
-    ? Serialized<Transferable>[]
-    : Serialized<ArrayBuffer>[]
-  value: T extends Array<unknown>
-    ? SerializedArray<SerializedReference>
-    : T extends Record<'string | number | symbol', unknown>
-      ? SerializedObject<SerializedReference>
-      : SerializedReference
+  transfers: (
+    | SerializedArrayBufferTransfer
+    | SerializedResizableArrayBufferTransfer
+    | SerializedTransferableTransfer
+  )[]
+  value: SerializedValue
 }
 
-declare function serialize<T extends unknown>(
-  value: T,
-  forStorage?: boolean,
-  interfaces?: unknown
-): Serialized<T>
+type SerializedValue =
+  | SerializedUndefined
+  | SerializedNull
+  | SerializedTrue
+  | SerializedFalse
+  | SerializedNumber
+  | SerializedBigInt
+  | SerializedString
+  | SerializedExternal
+  | SerializedDate
+  | SerializedRegExp
+  | SerializedError
+  | SerializedArrayBuffer
+  | SerializedResizableArrayBuffer
+  | SerializedSharedArrayBuffer
+  | SerializedGrowableSharedArrayBuffer
+  | SerializedTypedArray
+  | SerializedDataView
+  | SerializedMap
+  | SerializedSet
+  | SerializedArray
+  | SerializedObject
+  | SerializedReference
+  | SerializedURL
+  | SerializedBuffer
+  | SerializedSerializable
 
-declare function serializeWithTransfer<T extends unknown, V extends unknown>(
-  value: T,
-  transferList: V[],
-  interfaces?: unknown
-): SerializedWithTransfer<T, V>
+interface Serializable<T = unknown> {
+  [symbols.serialize](): T
+}
 
-type Deserialized<S extends unknown> =
-  S extends SerializedType<infer T>
-    ? T
-    : S extends SerializedValue<infer V>
-      ? V
-      : S extends SerializedDate
-        ? Date
-        : S extends SerializedRegExp
-          ? RegExp
-          : S extends SerializedURL
-            ? URL
-            : S extends SerializedError
-              ? Error
-              : S extends SerializedTypedArray
-                ? ArrayBufferLike
-                : S extends SerializedSharedArrayBuffer
-                  ? SharedArrayBuffer
-                  : S extends SerializedArrayBuffer
-                    ? ArrayBuffer
-                    : S extends SerializedArray<infer I>
-                      ? I[]
-                      : S extends SerializedMap<infer K, infer V>
-                        ? Map<K, V>
-                        : S extends SerializedObject<infer V>
-                          ? { [key: string | number | symbol]: V }
-                          : S extends SerializedSet<infer I>
-                            ? Set<I>
-                            : S extends SerializedTransferable<infer T>
-                              ? T
-                              : unknown
+declare class Serializable {}
 
-declare function deserialize<T extends unknown>(
-  serialized: T,
-  interfaces?: unknown,
-  references?: unknown
-): Deserialized<T>
+interface SerializableConstructor<T = unknown> {
+  new (...args: any[]): Serializable<T>
 
-declare function deserializeWithTransfer<T extends unknown>(
-  serialized: T,
-  interfaces?: unknown
-): Deserialized<T>
+  [symbols.deserialize](serialized: T): Serializable<T>
+}
 
-declare interface Transferable {
+type SerializableValue =
+  | undefined
+  | null
+  | boolean
+  | number
+  | bigint
+  | string
+  | Date
+  | RegExp
+  | Error
+  | ArrayBuffer
+  | SharedArrayBuffer
+  | Uint8Array
+  | Uint8ClampedArray
+  | Int8Array
+  | Uint16Array
+  | Int16Array
+  | Uint32Array
+  | Int32Array
+  | BigUint64Array
+  | BigInt64Array
+  | Float32Array
+  | Float64Array
+  | DataView
+  | Map<SerializableValue, SerializableValue>
+  | Set<SerializableValue>
+  | SerializableValue[]
+  | { [key: string | number]: SerializableValue }
+  | URL
+  | Buffer
+  | Serializable
+
+interface Transferable<T = unknown> {
   readonly detached: boolean
-  [Symbol.bare.detach](): void
+  [symbols.detach](): T
 }
 
-declare class Transferable {
-  static [Symbol.bare.attach](forStorage?: boolean): void
+declare class Transferable {}
+
+interface TransferableConstructor<T = unknown> {
+  new (...args: any[]): Transferable<T>
+
+  [symbols.attach](serialized: T): Transferable<T>
 }
 
-declare interface Serializable {
-  [Symbol.bare.serialize](): void
-}
-
-declare class Serializable {
-  static [Symbol.bare.deserialize](serialized?: unknown): void
-}
+type TransferableValue = ArrayBuffer | Transferable
 
 declare class DataCloneError extends Error {
   static INVALID_VERSION(msg: string): DataCloneError
@@ -324,6 +360,36 @@ declare class DataCloneError extends Error {
   static INVALID_INTERFACE(msg: string): DataCloneError
 }
 
+declare function structuredClone<T extends SerializableValue>(
+  value: T,
+  opts?: {
+    transfer: TransferableValue[]
+    interfaces: (SerializableConstructor | TransferableConstructor)[]
+  }
+): T
+
+declare function serialize(
+  value: SerializableValue,
+  forStorage?: boolean,
+  interfaces?: (SerializableConstructor | TransferableConstructor)[]
+): SerializedValue
+
+declare function serializeWithTransfer(
+  value: SerializableValue,
+  transferList?: TransferableValue[],
+  interfaces?: (SerializableConstructor | TransferableConstructor)[]
+): SerializedTransfer
+
+declare function deserialize<T extends SerializableValue>(
+  serialized: SerializedValue,
+  interfaces?: (SerializableConstructor | TransferableConstructor)[]
+): T
+
+declare function deserializeWithTransfer<T extends SerializableValue>(
+  serialized: SerializedTransfer,
+  interfaces?: (SerializableConstructor | TransferableConstructor)[]
+): T
+
 declare namespace structuredClone {
   export {
     serialize,
@@ -331,6 +397,7 @@ declare namespace structuredClone {
     deserialize,
     deserializeWithTransfer,
     constants,
+    symbols,
     DataCloneError as errors,
     Serializable,
     Transferable
