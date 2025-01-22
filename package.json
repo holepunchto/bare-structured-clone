@@ -3,7 +3,10 @@
   "version": "1.3.0",
   "description": "Structured cloning algorithm for JavaScript",
   "exports": {
-    ".": "./index.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
     "./package": "./package.json",
     "./global": "./global.js",
     "./constants": "./lib/constants.js",
@@ -11,6 +14,7 @@
   },
   "files": [
     "index.js",
+    "index.d.ts",
     "global.js",
     "binding.c",
     "binding.js",
@@ -20,7 +24,7 @@
   ],
   "addon": true,
   "scripts": {
-    "test": "prettier . --check && bare test/all.js"
+    "test": "prettier . --check && bare test.js"
   },
   "repository": {
     "type": "git",
@@ -42,9 +46,23 @@
     "compact-encoding-bitfield": "^1.0.0"
   },
   "devDependencies": {
+    "bare-buffer": "^3.0.1",
+    "bare-url": "^2.1.1",
     "brittle": "^3.1.1",
     "cmake-bare": "^1.1.6",
     "prettier": "^3.3.3",
     "prettier-config-standard": "^7.0.0"
+  },
+  "peerDependencies": {
+    "bare-buffer": "*",
+    "bare-url": "*"
+  },
+  "peerDependenciesMeta": {
+    "bare-buffer": {
+      "optional": true
+    },
+    "bare-url": {
+      "optional": true
+    }
   }
 }

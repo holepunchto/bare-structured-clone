@@ -58,10 +58,17 @@ exports.deserializeWithTransfer = function deserializeWithTransfer(
 exports.constants = constants
 exports.errors = errors
 
-exports.Serializable = class Serializable {
-  [Symbol.for('bare.serialize')](forStorage) {}
+exports.symbols = {
+  serialize: Symbol.for('bare.serialize'),
+  deserialize: Symbol.for('bare.deserialize'),
+  detach: Symbol.for('bare.detach'),
+  attach: Symbol.for('bare.attach')
+}
 
-  static [Symbol.for('bare.deserialize')](serialized) {}
+exports.Serializable = class Serializable {
+  [exports.symbols.serialize](forStorage) {}
+
+  static [exports.symbols.deserialize](serialized) {}
 }
 
 exports.Transferable = class Transferable {
@@ -69,11 +76,11 @@ exports.Transferable = class Transferable {
     this.detached = false
   }
 
-  [Symbol.for('bare.detach')]() {
+  [exports.symbols.detach]() {
     this.detached = true
   }
 
-  static [Symbol.for('bare.attach')](serialized) {}
+  static [exports.symbols.attach](serialized) {}
 }
 
 class InterfaceMap {
@@ -534,7 +541,7 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
 
       references.id(transferable)
     } else {
-      const detach = transferable[Symbol.for('bare.detach')]
+      const detach = transferable[exports.symbols.detach]
 
       if (detach) {
         if (transferable.detached) {
@@ -597,7 +604,7 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
         )
       }
 
-      const detach = transferable[Symbol.for('bare.detach')]
+      const detach = transferable[exports.symbols.detach]
 
       const transfer = {
         type: t.TRANSFERABLE,
@@ -853,7 +860,7 @@ function deserializeValue(serialized, interfaces, references) {
     case t.SERIALIZABLE: {
       const constructor = interfaces.get(serialized.interface)
 
-      const deserialize = constructor[Symbol.for('bare.deserialize')]
+      const deserialize = constructor[exports.symbols.deserialize]
 
       value = deserialize.call(
         constructor,
@@ -908,7 +915,7 @@ function deserializeValueWithTransfer(serialized, interfaces) {
       case t.TRANSFERABLE: {
         const constructor = interfaces.get(transfer.interface)
 
-        const attach = constructor[Symbol.for('bare.attach')]
+        const attach = constructor[exports.symbols.attach]
 
         references.set(
           transfer.id,
