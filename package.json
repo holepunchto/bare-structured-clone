@@ -3,19 +3,29 @@
   "version": "1.4.1",
   "description": "Structured cloning algorithm for JavaScript",
   "exports": {
+    "./package": "./package.json",
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./package": "./package.json",
-    "./global": "./global.js",
-    "./constants": "./lib/constants.js",
-    "./errors": "./lib/errors.js"
+    "./global": {
+      "types": "./global.d.ts",
+      "default": "./global.js"
+    },
+    "./constants": {
+      "types": "./lib/constants.d.ts",
+      "default": "./lib/constants.js"
+    },
+    "./errors": {
+      "types": "./lib/errors.d.ts",
+      "default": "./lib/errors.js"
+    }
   },
   "files": [
     "index.js",
     "index.d.ts",
     "global.js",
+    "global.d.ts",
     "binding.c",
     "binding.js",
     "CMakeLists.txt",
