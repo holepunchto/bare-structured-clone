@@ -1,7 +1,5 @@
 const getType = require('bare-type')
 const c = require('compact-encoding')
-const bitfield = require('compact-encoding-bitfield')
-const bits = require('bits-to-bytes')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
 const binding = require('./binding')
@@ -932,16 +930,14 @@ function deserializeValueWithTransfer(serialized, interfaces) {
   return deserializeValue(serialized.value, interfaces, references)
 }
 
-const flags = bitfield(7)
-
 const header = {
   preencode(state) {
     c.uint.preencode(state, constants.VERSION)
-    flags.preencode(state)
+    c.uint.preencode(state, 0) // Flags
   },
   encode(state) {
     c.uint.encode(state, constants.VERSION)
-    flags.encode(state, 0)
+    c.uint.encode(state, 0) // Flags
   },
   decode(state) {
     const version = c.uint.decode(state)
@@ -950,7 +946,7 @@ const header = {
       throw errors.INVALID_VERSION(`Invalid ABI version '${version}'`)
     }
 
-    flags.decode(state)
+    c.uint.decode(state) // Flags
   }
 }
 
@@ -1095,7 +1091,7 @@ const value = {
         c.string.preencode(state, m.flags)
         break
       case t.ERROR:
-        flags.preencode(state)
+        c.uint.preencode(state, 0) // Flags
         c.uint.preencode(state, m.name)
         c.string.preencode(state, m.message)
         value.preencode(state, m.stack)
@@ -1191,7 +1187,7 @@ const value = {
         c.string.encode(state, m.flags)
         break
       case t.ERROR:
-        flags.encode(state, bits.of('cause' in m))
+        c.uint.encode(state, 'cause' in m ? 1 : 0) // Flags
         c.uint.encode(state, m.name)
         c.string.encode(state, m.message)
         value.encode(state, m.stack)
@@ -1309,7 +1305,9 @@ const value = {
           flags: c.string.decode(state)
         }
       case t.ERROR: {
-        const [hasCause] = bits.iterator(flags.decode(state))
+        const flags = c.uint.decode(state)
+
+        const hasCause = (flags & 1) !== 0
 
         const m = {
           type,
