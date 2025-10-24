@@ -1,6 +1,6 @@
 {
   "name": "bare-structured-clone",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Structured cloning algorithm for JavaScript",
   "exports": {
     "./package": "./package.json",
