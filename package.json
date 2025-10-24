@@ -50,7 +50,7 @@
     "bare": ">=1.2.0"
   },
   "dependencies": {
-    "bare-type": "^1.0.0",
+    "bare-type": "^1.1.0",
     "compact-encoding": "^2.15.0"
   },
   "devDependencies": {

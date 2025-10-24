@@ -381,6 +381,8 @@ function serializeTypedArray(type, value, forStorage, interfaces, references) {
     view = t.typedarray.BIGUINT64ARRAY
   } else if (type.isBigInt64Array()) {
     view = t.typedarray.BIGINT64ARRAY
+  } else if (type.isFloat16Array()) {
+    view = t.typedarray.FLOAT16ARRAY
   } else if (type.isFloat32Array()) {
     view = t.typedarray.FLOAT32ARRAY
   } else if (type.isFloat64Array()) {
@@ -789,6 +791,13 @@ function deserializeValue(serialized, interfaces, references) {
           break
         case t.typedarray.BIGINT64ARRAY:
           value = new BigInt64Array(
+            buffer,
+            serialized.byteOffset,
+            serialized.length
+          )
+          break
+        case t.typedarray.FLOAT16ARRAY:
+          value = new Float16Array(
             buffer,
             serialized.byteOffset,
             serialized.length

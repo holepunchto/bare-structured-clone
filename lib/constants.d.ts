@@ -53,6 +53,7 @@ declare const constants: {
       INT32ARRAY: 7
       BIGUINT64ARRAY: 8
       BIGINT64ARRAY: 9
+      FLOAT16ARRAY: 12
       FLOAT32ARRAY: 10
       FLOAT64ARRAY: 11
     }
