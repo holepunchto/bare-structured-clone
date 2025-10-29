@@ -326,6 +326,33 @@ test('clone uint8array', (t) => {
   })
 })
 
+test('clone uint8array backed by sharedarraybuffer', (t) => {
+  const buf = new Uint8Array(new SharedArrayBuffer(4))
+
+  buf.set([1, 2, 3, 4])
+
+  clone(t, buf, (serialized) => {
+    t.ok(
+      serialized.buffer.backingStore instanceof ArrayBuffer,
+      'backing store is a buffer'
+    )
+
+    return {
+      type: type.TYPEDARRAY,
+      id: 1,
+      view: type.typedarray.UINT8ARRAY,
+      buffer: {
+        type: type.SHAREDARRAYBUFFER,
+        id: 2,
+        backingStore: serialized.buffer.backingStore
+      },
+      byteOffset: 0,
+      byteLength: 4,
+      length: 4
+    }
+  })
+})
+
 test('clone multiple uint8arrays backed by same buffer', (t) => {
   const buf = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8])
 
