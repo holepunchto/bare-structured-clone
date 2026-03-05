@@ -288,9 +288,10 @@ interface StructuredCloneOptions {
   interfaces: (SerializableConstructor | TransferableConstructor)[]
 }
 
-declare function structuredClone<
-  T extends SerializableValue | TransferableValue
->(value: T, opts?: StructuredCloneOptions): T
+declare function structuredClone<T extends SerializableValue | TransferableValue>(
+  value: T,
+  opts?: StructuredCloneOptions
+): T
 
 declare namespace structuredClone {
   export function serialize(
@@ -310,9 +311,7 @@ declare namespace structuredClone {
     interfaces?: (SerializableConstructor | TransferableConstructor)[]
   ): T
 
-  export function deserializeWithTransfer<
-    T extends SerializableValue | TransferableValue
-  >(
+  export function deserializeWithTransfer<T extends SerializableValue | TransferableValue>(
     serialized: SerializedTransfer,
     interfaces?: (SerializableConstructor | TransferableConstructor)[]
   ): T

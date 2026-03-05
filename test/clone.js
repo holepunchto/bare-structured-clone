@@ -274,10 +274,7 @@ test('clone sharedarraybuffer', (t) => {
   Buffer.from(buf).set([1, 2, 3, 4])
 
   clone(t, buf, (serialized) => {
-    t.ok(
-      serialized.backingStore instanceof ArrayBuffer,
-      'backing store is a buffer'
-    )
+    t.ok(serialized.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
 
     return {
       type: type.SHAREDARRAYBUFFER,
@@ -293,10 +290,7 @@ test('clone growable sharedarraybuffer', (t) => {
   Buffer.from(buf).set([1, 2, 3, 4])
 
   clone(t, buf, (serialized) => {
-    t.ok(
-      serialized.backingStore instanceof ArrayBuffer,
-      'backing store is a buffer'
-    )
+    t.ok(serialized.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
 
     return {
       type: type.GROWABLESHAREDARRAYBUFFER,
@@ -332,10 +326,7 @@ test('clone uint8array backed by sharedarraybuffer', (t) => {
   buf.set([1, 2, 3, 4])
 
   clone(t, buf, (serialized) => {
-    t.ok(
-      serialized.buffer.backingStore instanceof ArrayBuffer,
-      'backing store is a buffer'
-    )
+    t.ok(serialized.buffer.backingStore instanceof ArrayBuffer, 'backing store is a buffer')
 
     return {
       type: type.TYPEDARRAY,
