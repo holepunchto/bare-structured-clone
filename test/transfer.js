@@ -46,9 +46,7 @@ test('transfer arraybuffer', (t) => {
 
     return {
       type: type.TRANSFER,
-      transfers: [
-        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
-      ],
+      transfers: [{ type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }],
       value: { type: type.REFERENCE, id: 1 }
     }
   })
@@ -91,9 +89,7 @@ test('transfer arraybuffer in array', (t) => {
 
     return {
       type: type.TRANSFER,
-      transfers: [
-        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
-      ],
+      transfers: [{ type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }],
       value: {
         type: type.ARRAY,
         id: 2,
@@ -121,9 +117,7 @@ test('transfer arraybuffer in object', (t) => {
 
     return {
       type: type.TRANSFER,
-      transfers: [
-        { type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }
-      ],
+      transfers: [{ type: type.ARRAYBUFFER, id: 1, backingStore: buf.backingStore }],
       value: {
         type: type.OBJECT,
         id: 2,
