@@ -54,8 +54,8 @@
     "compact-encoding": "^2.15.0"
   },
   "devDependencies": {
-    "bare-buffer": "^3.0.1",
-    "bare-url": "^2.1.1",
+    "bare-buffer": "^3.6.0",
+    "bare-url": "^2.4.0",
     "brittle": "^3.1.1",
     "cmake-bare": "^1.1.6",
     "prettier": "^3.3.3",

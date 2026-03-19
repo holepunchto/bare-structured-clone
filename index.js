@@ -1,4 +1,6 @@
 const getType = require('bare-type')
+const { isURL } = require('bare-url')
+const { isBuffer } = require('bare-buffer')
 const c = require('compact-encoding')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
@@ -155,8 +157,8 @@ function serializeFunction(value) {
 function serializeReferenceable(type, value, forStorage, interfaces, references) {
   if (references.has(value)) return serializeReference(value, references)
 
-  if (URL.isURL(value)) return serializeURL(value, references)
-  if (Buffer.isBuffer(value)) return serializeBuffer(value, forStorage, interfaces, references)
+  if (isURL(value)) return serializeURL(value, references)
+  if (isBuffer(value)) return serializeBuffer(value, forStorage, interfaces, references)
 
   if (type.isArray()) return serializeArray(value, forStorage, interfaces, references)
   if (type.isDate()) return serializeDate(value, references)
