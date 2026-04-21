@@ -136,8 +136,9 @@ function serializeValue(value, forStorage, interfaces, references) {
   if (type.isBigInt()) return { type: t.BIGINT, value }
   if (type.isString()) return serializeString(value)
   if (type.isSymbol()) return serializeSymbol(value)
-  if (type.isObject())
+  if (type.isObject()) {
     return serializeReferenceable(type, value, forStorage, interfaces, references)
+  }
   if (type.isFunction()) return serializeFunction(value)
   if (type.isExternal()) return serializeExternal(value, forStorage, references)
 }
@@ -168,8 +169,9 @@ function serializeReferenceable(type, value, forStorage, interfaces, references)
   if (type.isSet()) return serializeSet(value, forStorage, interfaces, references)
   if (type.isArrayBuffer()) return serializeArrayBuffer(value, references)
   if (type.isSharedArrayBuffer()) return serializeSharedArrayBuffer(value, forStorage, references)
-  if (type.isTypedArray())
+  if (type.isTypedArray()) {
     return serializeTypedArray(type, value, forStorage, interfaces, references)
+  }
   if (type.isDataView()) return serializeDataView(value, forStorage, interfaces, references)
 
   if (
