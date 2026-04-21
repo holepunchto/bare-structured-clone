@@ -52,21 +52,13 @@
   "dependencies": {
     "bare-buffer": "^3.6.0",
     "bare-type": "^1.1.0",
+    "bare-url": "^2.4.0",
     "compact-encoding": "^2.15.0"
   },
   "devDependencies": {
-    "bare-url": "^2.4.0",
     "brittle": "^3.1.1",
     "cmake-bare": "^1.1.6",
     "prettier": "^3.3.3",
     "prettier-config-holepunch": "^2.0.0"
-  },
-  "peerDependencies": {
-    "bare-url": "*"
-  },
-  "peerDependenciesMeta": {
-    "bare-url": {
-      "optional": true
-    }
   }
 }
