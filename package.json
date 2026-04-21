@@ -50,11 +50,11 @@
     "bare": ">=1.2.0"
   },
   "dependencies": {
+    "bare-buffer": "^3.6.0",
     "bare-type": "^1.1.0",
     "compact-encoding": "^2.15.0"
   },
   "devDependencies": {
-    "bare-buffer": "^3.6.0",
     "bare-url": "^2.4.0",
     "brittle": "^3.1.1",
     "cmake-bare": "^1.1.6",
@@ -62,13 +62,9 @@
     "prettier-config-holepunch": "^2.0.0"
   },
   "peerDependencies": {
-    "bare-buffer": "*",
     "bare-url": "*"
   },
   "peerDependenciesMeta": {
-    "bare-buffer": {
-      "optional": true
-    },
     "bare-url": {
       "optional": true
     }
