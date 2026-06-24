@@ -186,3 +186,57 @@ test('transfer transferable, unregistered', (t) => {
     t.comment(err.message)
   }
 })
+
+test('transfer transferable matched by interface key', (t) => {
+  // Two distinct copies of the same class, as would arise when the value to
+  // transfer comes from code that bundles its own copy of the interface. The
+  // copies share an interface key but not their class identity.
+  function makeClass() {
+    return class Foo {
+      constructor() {
+        this.detached = false
+      }
+
+      static get [symbols.interface]() {
+        return Symbol.for('foo')
+      }
+
+      [symbols.detach]() {
+        this.detached = true
+
+        return 1234
+      }
+
+      static [symbols.attach](value) {
+        t.is(value, 1234)
+
+        return new Foo()
+      }
+    }
+  }
+
+  const Registered = makeClass()
+  const Bundled = makeClass()
+
+  t.not(Registered, Bundled, 'classes have distinct identities')
+
+  const from = new Bundled()
+  const to = new Registered()
+
+  transfer(t, from, to, [from], [Registered], () => {
+    t.ok(from.detached, 'value is detached')
+
+    return {
+      type: type.TRANSFER,
+      transfers: [
+        {
+          type: type.TRANSFERABLE,
+          id: 1,
+          interface: 1,
+          value: { type: type.NUMBER, value: 1234 }
+        }
+      ],
+      value: { type: type.REFERENCE, id: 1 }
+    }
+  })
+})

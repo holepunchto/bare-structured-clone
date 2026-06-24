@@ -8,6 +8,7 @@ declare const symbols: {
   readonly deserialize: unique symbol
   readonly detach: unique symbol
   readonly attach: unique symbol
+  readonly interface: unique symbol
 }
 
 interface SerializedUndefined {
@@ -233,6 +234,7 @@ interface SerializableConstructor<T = unknown> {
   new (...args: any[]): Serializable<T>
 
   [symbols.deserialize](serialized: T): Serializable<T>
+  [symbols.interface]?: symbol
 }
 
 type SerializableValue =
@@ -279,6 +281,7 @@ interface TransferableConstructor<T = unknown> {
   new (...args: any[]): Transferable<T>
 
   [symbols.attach](serialized: T): Transferable<T>
+  [symbols.interface]?: symbol
 }
 
 type TransferableValue = ArrayBuffer | Transferable
