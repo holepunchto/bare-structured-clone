@@ -46,7 +46,8 @@ exports.symbols = {
   serialize: Symbol.for('bare.serialize'),
   deserialize: Symbol.for('bare.deserialize'),
   detach: Symbol.for('bare.detach'),
-  attach: Symbol.for('bare.attach')
+  attach: Symbol.for('bare.attach'),
+  interface: Symbol.for('bare.interface')
 }
 
 exports.Serializable = class Serializable {
@@ -70,6 +71,7 @@ exports.Transferable = class Transferable {
 class InterfaceMap {
   constructor(interfaces) {
     this.ids = new WeakMap()
+    this.keys = new Map()
     this.interfaces = new Map()
 
     let nextId = 1
@@ -78,20 +80,41 @@ class InterfaceMap {
       const id = nextId++
 
       this.ids.set(constructor, id)
+
+      const key = constructor[exports.symbols.interface]
+
+      if (key !== undefined) this.keys.set(key, id)
+
       this.interfaces.set(id, constructor)
     }
   }
 
   id(constructor) {
-    const id = this.ids.get(constructor)
+    let id = this.ids.get(constructor)
 
-    if (!id) {
-      throw errors.INVALID_INTERFACE(
-        `Class '${constructor.name}' is not registered as a serializable or transferable interface`
-      )
+    if (id) return id
+
+    // The constructor was not registered by identity, but a distinct copy of
+    // the same class might have been, for example when the value originates
+    // from code that bundles its own copy of the interface. Fall back to the
+    // interface key that the class declares for itself, a shared symbol such
+    // as one from the global registry, so that any such copy with a matching
+    // API resolves to the registered interface.
+    const key = constructor[exports.symbols.interface]
+
+    if (key !== undefined) {
+      id = this.keys.get(key)
+
+      if (id) {
+        this.ids.set(constructor, id)
+
+        return id
+      }
     }
 
-    return id
+    throw errors.INVALID_INTERFACE(
+      `Class '${constructor.name}' is not registered as a serializable or transferable interface`
+    )
   }
 
   get(id) {
