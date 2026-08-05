@@ -25,152 +25,329 @@ require('bare-structured-clone/global')
 const copy = structuredClone({ hello: 'world' })
 ```
 
+<!-- bare-refgen:api start -->
+
 ## API
 
-#### `const copy = structuredClone(value[, options])`
+### DataCloneError
 
-Clone `value` by serializing and then deserializing it. `options` may include a `transfer` list and an `interfaces` list:
+#### `DataCloneError.DataCloneError.ALREADY_TRANSFERRED(msg: string): DataCloneError`
 
-```js
-options = {
-  transfer: [],
-  interfaces: []
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `ALREADY_TRANSFERRED`.
+
+#### `DataCloneError.DataCloneError.INVALID_INTERFACE(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `INVALID_INTERFACE`.
+
+#### `DataCloneError.DataCloneError.INVALID_REFERENCE(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `INVALID_REFERENCE`.
+
+#### `DataCloneError.DataCloneError.INVALID_VERSION(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `INVALID_VERSION`.
+
+#### `DataCloneError.DataCloneError.UNSERIALIZABLE_TYPE(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `UNSERIALIZABLE_TYPE`.
+
+#### `DataCloneError.DataCloneError.UNTRANSFERABLE_TYPE(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `UNTRANSFERABLE_TYPE`.
+
+### Functions
+
+#### `structuredClone`
+
+```ts
+structuredClone<T extends SerializableValue | TransferableValue>(value: T, opts?: StructuredCloneOptions): T
+```
+
+Clone `value` by serializing and then deserializing it. `opts` may include a `transfer` list and an `interfaces` list.
+
+**Parameters**
+
+| Parameter | Type                     | Default | Description                                                      |
+| --------- | ------------------------ | ------- | ---------------------------------------------------------------- |
+| `value`   | `T`                      | —       | The value to clone.                                              |
+| `opts?`   | `StructuredCloneOptions` | —       | Options carrying the optional `transfer` and `interfaces` lists. |
+
+**Returns** `T` — A deep copy of `value`, with any transferred objects detached from the original.
+
+**Throws**
+
+- `UNSERIALIZABLE_TYPE` — `value`, or a value it references, is of a type that cannot be serialized (e.g. a function, a symbol, or a detached `ArrayBuffer`).
+- `UNTRANSFERABLE_TYPE` — a value in the `transfer` list cannot be transferred.
+- `ALREADY_TRANSFERRED` — a value in the `transfer` list has already been transferred.
+- `INVALID_INTERFACE` — a serializable or transferable value has an interface that is not present in the `interfaces` list.
+
+### Types
+
+#### `StructuredCloneOptions`
+
+```ts
+interface StructuredCloneOptions {
+  transfer: TransferableValue[]
+  interfaces: (SerializableConstructor | TransferableConstructor)[]
 }
 ```
 
-`transfer` is an array of `ArrayBuffer` and `Transferable` objects whose ownership is transferred to the clone. After transfer, the original objects are detached. `interfaces` is an array of `Serializable` and `Transferable` constructors that may appear in `value`; each constructor must be present at both serialize and deserialize time.
+#### `SerializableConstructor`
 
-#### `const serialized = serialize(value[, forStorage[, interfaces]])`
-
-Serialize `value` to a `SerializedValue` describing its structure. If `forStorage` is `true`, the value is being serialized for persistent storage; types that cannot be persisted (such as `SharedArrayBuffer`) will throw.
-
-#### `const serialized = serializeWithTransfer(value[, transferList[, interfaces]])`
-
-Like `serialize()` but additionally detaches the objects in `transferList` and embeds their backing stores in the resulting `SerializedTransfer`.
-
-#### `const value = deserialize(serialized[, interfaces])`
-
-Deserialize a value previously produced by `serialize()`.
-
-#### `const value = deserializeWithTransfer(serialized[, interfaces])`
-
-Deserialize a value previously produced by `serializeWithTransfer()`, attaching the transferred backing stores to new objects.
-
-#### `preencode(state, serialized)`
-
-#### `encode(state, serialized)`
-
-#### `const serialized = decode(state)`
-
-The module is itself a compact-encoding codec for `SerializedValue` and `SerializedTransfer`, prefixing the payload with an ABI version header. Use it with `compact-encoding` to encode a serialized value to a buffer:
-
-```js
-const c = require('compact-encoding')
-const structuredClone = require('bare-structured-clone')
-const { serialize, deserialize } = structuredClone
-
-const buffer = c.encode(structuredClone, serialize({ hello: 'world' }))
-const value = deserialize(c.decode(structuredClone, buffer))
+```ts
+interface SerializableConstructor<T = unknown> {}
 ```
+
+#### `TransferableConstructor`
+
+```ts
+interface TransferableConstructor<T = unknown> {}
+```
+
+#### `SerializedTransfer`
+
+```ts
+interface SerializedTransfer {
+  type: typeof constants.type.TRANSFER
+  transfers: (
+    | SerializedArrayBufferTransfer
+    | SerializedResizableArrayBufferTransfer
+    | SerializedTransferableTransfer
+  )[]
+  value: SerializedValue
+}
+```
+
+#### `SerializedArrayBufferTransfer`
+
+```ts
+interface SerializedArrayBufferTransfer {
+  type: typeof constants.type.ARRAYBUFFER
+  id: number
+  backingStore: ArrayBuffer
+}
+```
+
+#### `SerializedResizableArrayBufferTransfer`
+
+```ts
+interface SerializedResizableArrayBufferTransfer {
+  type: typeof constants.type.RESIZABLEARRAYBUFFER
+  id: number
+  backingStore: ArrayBuffer
+  maxByteLength: number
+}
+```
+
+#### `SerializedTransferableTransfer`
+
+```ts
+interface SerializedTransferableTransfer {
+  type: typeof constants.type.TRANSFERABLE
+  id: number
+  interface: number
+  value: SerializedValue
+}
+```
+
+### Classes
+
+#### `Serializable`
+
+```ts
+class Serializable {}
+```
+
+#### `Transferable`
+
+```ts
+class Transferable {
+  detached: boolean
+}
+```
+
+## `bare-structured-clone/constants`
+
+### Constants and variables
 
 #### `constants`
 
-Numeric tags used in serialized values. Also available as `require('bare-structured-clone/constants')`.
+```ts
+constants: {
+  VERSION: number
 
-```js
-constants = {
-  VERSION,
   type: {
-    UNDEFINED,
-    NULL,
-    TRUE,
-    FALSE,
-    NUMBER,
-    BIGINT,
-    STRING,
-    DATE,
-    REGEXP,
-    ERROR,
-    ARRAYBUFFER,
-    RESIZABLEARRAYBUFFER,
-    SHAREDARRAYBUFFER,
-    GROWABLESHAREDARRAYBUFFER,
-    TYPEDARRAY,
-    DATAVIEW,
-    MAP,
-    SET,
-    ARRAY,
-    OBJECT,
-    REFERENCE,
-    TRANSFER,
-    URL,
-    BUFFER,
-    EXTERNAL,
-    SERIALIZABLE,
-    TRANSFERABLE,
+    // Primitive types
+    UNDEFINED: 0
+    NULL: 1
+    TRUE: 2
+    FALSE: 3
+    NUMBER: 4
+    BIGINT: 5
+    STRING: 6
+
+    // Builtin objects
+    DATE: 7
+    REGEXP: 8
+    ERROR: 9
+
+    // Builtin binary data objects
+    ARRAYBUFFER: 10
+    RESIZABLEARRAYBUFFER: 11
+    SHAREDARRAYBUFFER: 12
+    GROWABLESHAREDARRAYBUFFER: 13
+    TYPEDARRAY: 14
+    DATAVIEW: 15
+
+    // Builtin composite objects
+    MAP: 16
+    SET: 17
+    ARRAY: 18
+    OBJECT: 19
+
+    // Object references
+    REFERENCE: 20
+
+    // Object transfers
+    TRANSFER: 21
+
+    // Platform objects
+    URL: 22
+    BUFFER: 23
+    EXTERNAL: 24
+    SERIALIZABLE: 25
+    TRANSFERABLE: 26
+
     typedarray: {
-      /* ... */
-    },
+      UINT8ARRAY: 1
+      UINT8CLAMPEDARRAY: 2
+      INT8ARRAY: 3
+      UINT16ARRAY: 4
+      INT16ARRAY: 5
+      UINT32ARRAY: 6
+      INT32ARRAY: 7
+      BIGUINT64ARRAY: 8
+      BIGINT64ARRAY: 9
+      FLOAT16ARRAY: 12
+      FLOAT32ARRAY: 10
+      FLOAT64ARRAY: 11
+    }
+
     error: {
-      /* ... */
+      AGGREGATE: 1
+      EVAL: 2
+      RANGE: 3
+      REFERENCE: 4
+      SYNTAX: 5
+      TYPE: 6
+      URI: 7
     }
   }
 }
 ```
 
-#### `symbols`
+Numeric tags used in serialized values. Also available as `require('bare-structured-clone/constants')`.
 
-Well-known symbols used to implement custom `Serializable` and `Transferable` interfaces.
+## `bare-structured-clone/errors`
 
-```js
-symbols = {
-  serialize: Symbol.for('bare.serialize'),
-  deserialize: Symbol.for('bare.deserialize'),
-  detach: Symbol.for('bare.detach'),
-  attach: Symbol.for('bare.attach')
-}
-```
+### DataCloneError
 
-#### `class Serializable`
+#### `DataCloneError.DataCloneError.ALREADY_TRANSFERRED(msg: string): DataCloneError`
 
-Base class for custom serializable interfaces. Subclasses must implement two methods keyed by the symbols above:
+**Parameters**
 
-```js
-const { Serializable, symbols } = require('bare-structured-clone')
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
 
-class MySerializable extends Serializable {
-  [symbols.serialize](forStorage) {
-    // Return a `SerializableValue` describing this instance
-  }
+**Returns** `DataCloneError` — A new `DataCloneError` with code `ALREADY_TRANSFERRED`.
 
-  static [symbols.deserialize](serialized) {
-    // Return a new instance reconstructed from `serialized`
-  }
-}
-```
+#### `DataCloneError.DataCloneError.INVALID_INTERFACE(msg: string): DataCloneError`
 
-The constructor must be registered via the `interfaces` option on both ends of the clone.
+**Parameters**
 
-#### `class Transferable`
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
 
-Base class for custom transferable interfaces. Instances carry a `detached` boolean that flips to `true` once ownership has been transferred. Subclasses must implement two methods keyed by the symbols above:
+**Returns** `DataCloneError` — A new `DataCloneError` with code `INVALID_INTERFACE`.
 
-```js
-const { Transferable, symbols } = require('bare-structured-clone')
+#### `DataCloneError.DataCloneError.INVALID_REFERENCE(msg: string): DataCloneError`
 
-class MyTransferable extends Transferable {
-  [symbols.detach]() {
-    // Release ownership and return a `SerializableValue` describing
-    // the detached state
-  }
+**Parameters**
 
-  static [symbols.attach](serialized) {
-    // Return a new instance that takes ownership of `serialized`
-  }
-}
-```
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
 
-The constructor must be registered via the `interfaces` option on both ends of the clone. The base `detach` implementation sets `detached` to `true`; subclasses should call `super[symbols.detach]()` after releasing their state.
+**Returns** `DataCloneError` — A new `DataCloneError` with code `INVALID_REFERENCE`.
+
+#### `DataCloneError.DataCloneError.INVALID_VERSION(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `INVALID_VERSION`.
+
+#### `DataCloneError.DataCloneError.UNSERIALIZABLE_TYPE(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `UNSERIALIZABLE_TYPE`.
+
+#### `DataCloneError.DataCloneError.UNTRANSFERABLE_TYPE(msg: string): DataCloneError`
+
+**Parameters**
+
+| Parameter | Type     | Default | Description        |
+| --------- | -------- | ------- | ------------------ |
+| `msg`     | `string` | —       | The error message. |
+
+**Returns** `DataCloneError` — A new `DataCloneError` with code `UNTRANSFERABLE_TYPE`.
+<!-- bare-refgen:api end -->
 
 ## License
 

@@ -1,3 +1,4 @@
+/** Numeric tags used in serialized values. Also available as `require('bare-structured-clone/constants')`. */
 declare const constants: {
   VERSION: number
 
