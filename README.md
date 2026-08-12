@@ -86,6 +86,7 @@ constants = {
     TRUE,
     FALSE,
     NUMBER,
+    INTEGER,
     BIGINT,
     STRING,
     DATE,
@@ -109,7 +110,9 @@ constants = {
     SERIALIZABLE,
     TRANSFERABLE,
     typedarray: {/* ... */},
-    error: {/* ... */}
+    error: {/* ... */},
+    key: {/* ... */},
+    array: {/* ... */}
   }
 }
 ```
@@ -123,7 +126,8 @@ symbols = {
   serialize: Symbol.for('bare.serialize'),
   deserialize: Symbol.for('bare.deserialize'),
   detach: Symbol.for('bare.detach'),
-  attach: Symbol.for('bare.attach')
+  attach: Symbol.for('bare.attach'),
+  interface: Symbol.for('bare.interface')
 }
 ```
 
