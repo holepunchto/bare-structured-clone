@@ -44,7 +44,7 @@ interface SerializedString {
 
 interface SerializedExternal {
   type: typeof constants.type.EXTERNAL
-  value: ArrayBuffer
+  pointer: ArrayBuffer
 }
 
 interface SerializedDate {
