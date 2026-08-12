@@ -32,7 +32,11 @@ function clone(t, value, interfaces, expected) {
 
   const deserialized = deserialize(serialized, interfaces)
 
-  t.alike(deserialized, value, 'deserializes as expected')
+  if (value instanceof URL) {
+    t.is(deserialized.href, value.href, 'deserializes as expected')
+  } else {
+    t.alike(deserialized, value, 'deserializes as expected')
+  }
 }
 
 test('clone undefined', (t) => {
@@ -62,6 +66,36 @@ test('clone number', (t) => {
 
   clone(t, Infinity, { type: type.NUMBER, value: Infinity })
   clone(t, -Infinity, { type: type.NUMBER, value: -Infinity })
+})
+
+test('clone integer boundaries', (t) => {
+  for (const value of [
+    0,
+    1,
+    -1,
+    127,
+    -128,
+    255,
+    65535,
+    2147483647,
+    -2147483648,
+    2147483648,
+    -2147483649,
+    4294967295,
+    Number.MAX_SAFE_INTEGER,
+    -Number.MAX_SAFE_INTEGER
+  ]) {
+    const cloned = deserialize(
+      c.decode(structuredClone, c.encode(structuredClone, serialize(value)))
+    )
+    t.is(cloned, value, `${value} round trips`)
+  }
+
+  const negativeZero = deserialize(
+    c.decode(structuredClone, c.encode(structuredClone, serialize(-0)))
+  )
+
+  t.ok(Object.is(negativeZero, -0), 'negative zero stays negative')
 })
 
 test('clone bigint', (t) => {
@@ -135,6 +169,13 @@ test('clone error with cause', (t) => {
       value: 'err cause'
     }
   })
+})
+
+test('clone error restores its cause', (t) => {
+  const cloned = structuredClone(new Error('outer', { cause: new TypeError('inner') }))
+
+  t.ok(cloned.cause instanceof TypeError, 'cause is a type error')
+  t.is(cloned.cause && cloned.cause.message, 'inner', 'cause carries its message')
 })
 
 test('clone type error', (t) => {
@@ -354,40 +395,35 @@ test('clone multiple uint8arrays backed by same buffer', (t) => {
     type: type.ARRAY,
     id: 1,
     length: 2,
-    properties: [
+    elements: [
       {
-        key: '0',
-        value: {
-          type: type.TYPEDARRAY,
-          id: 2,
-          view: type.typedarray.UINT8ARRAY,
-          buffer: {
-            type: type.ARRAYBUFFER,
-            id: 3,
-            owned: false,
-            data: buf.buffer
-          },
-          byteOffset: 0,
-          byteLength: 4,
-          length: 4
-        }
+        type: type.TYPEDARRAY,
+        id: 2,
+        view: type.typedarray.UINT8ARRAY,
+        buffer: {
+          type: type.ARRAYBUFFER,
+          id: 3,
+          owned: false,
+          data: buf.buffer
+        },
+        byteOffset: 0,
+        byteLength: 4,
+        length: 4
       },
       {
-        key: '1',
-        value: {
-          type: type.TYPEDARRAY,
-          id: 4,
-          view: type.typedarray.UINT8ARRAY,
-          buffer: {
-            type: type.REFERENCE,
-            id: 3
-          },
-          byteOffset: 4,
-          byteLength: 4,
-          length: 4
-        }
+        type: type.TYPEDARRAY,
+        id: 4,
+        view: type.typedarray.UINT8ARRAY,
+        buffer: {
+          type: type.REFERENCE,
+          id: 3
+        },
+        byteOffset: 4,
+        byteLength: 4,
+        length: 4
       }
-    ]
+    ],
+    properties: []
   })
 })
 
@@ -465,6 +501,26 @@ test('clone dataview', (t) => {
   })
 })
 
+test('clone dataview keeps its identity', (t) => {
+  const view = new DataView(new ArrayBuffer(8))
+
+  const cloned = structuredClone({ a: view, b: view })
+
+  t.ok(cloned.a instanceof DataView, 'clones as a dataview')
+  t.is(cloned.a, cloned.b, 'both properties resolve to the same dataview')
+})
+
+test('clone distinct dataviews get distinct references', (t) => {
+  const a = new DataView(new ArrayBuffer(8))
+  const b = new DataView(new ArrayBuffer(8))
+
+  const serialized = serialize({ a, b })
+
+  const [first, second] = serialized.properties
+
+  t.not(first.value.id, second.value.id, 'ids are distinct')
+})
+
 test('clone map', (t) => {
   clone(
     t,
@@ -533,11 +589,12 @@ test('clone array', (t) => {
     type: type.ARRAY,
     id: 1,
     length: 3,
-    properties: [
-      { key: '0', value: { type: type.NUMBER, value: 42 } },
-      { key: '1', value: { type: type.STRING, value: 'hello' } },
-      { key: '2', value: { type: type.TRUE } }
-    ]
+    elements: [
+      { type: type.NUMBER, value: 42 },
+      { type: type.STRING, value: 'hello' },
+      { type: type.TRUE }
+    ],
+    properties: []
   })
 })
 
@@ -549,7 +606,8 @@ test('clone circular array', (t) => {
     type: type.ARRAY,
     id: 1,
     length: 1,
-    properties: [{ key: '0', value: { type: type.REFERENCE, id: 1 } }]
+    elements: [{ type: type.REFERENCE, id: 1 }],
+    properties: []
   })
 })
 
@@ -561,13 +619,104 @@ test('clone array with additional property', (t) => {
     type: type.ARRAY,
     id: 1,
     length: 3,
-    properties: [
-      { key: '0', value: { type: type.NUMBER, value: 42 } },
-      { key: '1', value: { type: type.STRING, value: 'hello' } },
-      { key: '2', value: { type: type.TRUE } },
-      { key: 'foo', value: { type: type.STRING, value: 'bar' } }
-    ]
+    elements: [
+      { type: type.NUMBER, value: 42 },
+      { type: type.STRING, value: 'hello' },
+      { type: type.TRUE }
+    ],
+    properties: [{ key: 'foo', value: { type: type.STRING, value: 'bar' } }]
   })
+})
+
+test('clone dense array keeps named properties apart', (t) => {
+  const arr = ['a', 'b']
+  arr.tag = 'c'
+
+  const serialized = serialize(arr)
+
+  t.is(serialized.elements.length, 2, 'elements hold the indices')
+  t.alike(
+    serialized.properties.map((p) => p.key),
+    ['tag'],
+    'properties hold only the names'
+  )
+
+  const cloned = deserialize(c.decode(structuredClone, c.encode(structuredClone, serialized)))
+
+  t.alike([cloned[0], cloned[1], cloned.tag], ['a', 'b', 'c'], 'both survive')
+})
+
+test('clone sparse array keeps its holes', (t) => {
+  const arr = new Array(6)
+  arr[1] = 'a'
+  arr[4] = 'b'
+
+  const serialized = serialize(arr)
+
+  t.alike(
+    serialized.properties.map((p) => p.key),
+    [1, 4],
+    'only present indices are serialized'
+  )
+
+  const cloned = deserialize(c.decode(structuredClone, c.encode(structuredClone, serialized)))
+
+  t.is(cloned.length, 6, 'length survives')
+  t.absent(0 in cloned, 'hole survives')
+  t.is(cloned[1], 'a', 'first element survives')
+  t.is(cloned[4], 'b', 'second element survives')
+})
+
+test('clone sparse array has no elements', (t) => {
+  const arr = new Array(4)
+  arr[1] = 'a'
+  arr.tag = 'b'
+
+  const serialized = serialize(arr)
+
+  t.is(serialized.elements, null, 'sparse arrays carry no elements')
+  t.alike(
+    serialized.properties.map((p) => p.key),
+    [1, 'tag'],
+    'indices stay with the properties'
+  )
+})
+
+test('clone array with non canonical numeric properties', (t) => {
+  const arr = [1]
+
+  arr['01'] = 'a'
+  arr['1e2'] = 'b'
+  arr['1.5'] = 'c'
+  arr['-1'] = 'd'
+  arr['4294967295'] = 'e'
+
+  const serialized = serialize(arr)
+
+  t.is(serialized.elements.length, 1, 'the sole index is an element')
+
+  const keys = serialized.properties.map((p) => p.key)
+
+  t.alike(keys, ['01', '1e2', '1.5', '-1', '4294967295'], 'the rest stay names')
+
+  const cloned = deserialize(c.decode(structuredClone, c.encode(structuredClone, serialized)))
+
+  t.is(cloned[0], 1, 'index survives')
+  t.is(cloned['01'], 'a', 'leading zero survives')
+  t.is(cloned['1e2'], 'b', 'exponent survives')
+  t.is(cloned['1.5'], 'c', 'fraction survives')
+  t.is(cloned['-1'], 'd', 'negative survives')
+  t.is(cloned['4294967295'], 'e', 'out of range index survives')
+})
+
+test('clone array with large index', (t) => {
+  const arr = []
+  arr[70000] = 'a'
+
+  const cloned = structuredClone(arr)
+
+  t.is(cloned.length, 70001, 'length survives')
+  t.is(cloned[70000], 'a', 'element survives')
 })
 
 test('clone object', (t) => {
@@ -597,12 +746,28 @@ test('clone circular object', (t) => {
   })
 })
 
+test('clone object keyed by index', (t) => {
+  const cloned = structuredClone({ 2: 'a', b: 'c', 0: 'd' })
+
+  t.alike(Object.keys(cloned), ['0', '2', 'b'], 'key order survives')
+  t.alike(cloned, { 0: 'd', 2: 'a', b: 'c' }, 'values survive')
+})
+
 test('clone url', (t) => {
   clone(t, new URL('https://example.org'), {
     type: type.URL,
     id: 1,
     href: 'https://example.org/'
   })
+})
+
+test('clone url repeated in a graph', (t) => {
+  const url = new URL('https://example.org/a?b=c#d')
+
+  const cloned = structuredClone({ a: url, b: url })
+
+  t.is(cloned.a.href, 'https://example.org/a?b=c#d', 'url round trips')
+  t.is(cloned.a, cloned.b, 'both properties resolve to the same url')
 })
 
 test('clone buffer', (t) => {
@@ -617,7 +782,26 @@ test('clone buffer', (t) => {
       owned: false,
       data: buf.buffer
     },
-    byteOffset: 0,
+    byteOffset: buf.byteOffset,
+    byteLength: 4
+  })
+})
+
+test('clone buffer, unpooled', (t) => {
+  const buf = Buffer.alloc(4)
+
+  buf.set([1, 2, 3, 4])
+
+  clone(t, buf, {
+    type: type.BUFFER,
+    id: 1,
+    buffer: {
+      type: type.ARRAYBUFFER,
+      id: 2,
+      owned: false,
+      data: buf.buffer
+    },
+    byteOffset: buf.byteOffset,
     byteLength: 4
   })
 })
@@ -662,5 +846,149 @@ test('clone serializable, unregistered', (t) => {
     t.fail()
   } catch (err) {
     t.comment(err.message)
+  }
+})
+
+// The tests below cover the encoding itself rather than the cloning of any
+// one type: what the wire format spends bytes on, and what it rejects.
+
+test('encode integer is smaller than a double', (t) => {
+  const integers = c.encode(structuredClone, serialize([1, 2, 3, 4, 5])).byteLength
+  const doubles = c.encode(structuredClone, serialize([1.5, 2.5, 3.5, 4.5, 5.5])).byteLength
+
+  t.ok(integers < doubles, `integers ${integers} bytes, doubles ${doubles} bytes`)
+})
+
+test('encode dense array omits its indices', (t) => {
+  // Both arrays carry four elements. The dense one recovers their indices from
+  // their positions, while the sparse one has to write every index out.
+  const dense = [1, 2, 3, 4]
+
+  const sparse = new Array(5)
+  sparse[0] = 1
+  sparse[1] = 2
+  sparse[2] = 3
+  sparse[4] = 4
+
+  const denseBytes = c.encode(structuredClone, serialize(dense)).byteLength
+  const sparseBytes = c.encode(structuredClone, serialize(sparse)).byteLength
+
+  t.ok(denseBytes < sparseBytes, `dense ${denseBytes} bytes, sparse ${sparseBytes} bytes`)
+
+  const cloned = deserialize(
+    c.decode(structuredClone, c.encode(structuredClone, serialize(sparse)))
+  )
+
+  t.is(cloned.length, 5, 'length survives')
+  t.absent(3 in cloned, 'hole survives')
+  t.alike([cloned[0], cloned[1], cloned[2], cloned[4]], [1, 2, 3, 4], 'elements survive')
+})
+
+test('encode repeated property names once', (t) => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ alpha: i, beta: 'b', gamma: true }))
+
+  const many = c.encode(structuredClone, serialize(rows)).byteLength
+  const one = c.encode(structuredClone, serialize([rows[0]])).byteLength
+
+  t.ok(many < one * 20, `one row ${one} bytes, forty rows ${many} bytes`)
+
+  const cloned = deserialize(c.decode(structuredClone, c.encode(structuredClone, serialize(rows))))
+
+  t.alike(Object.keys(cloned[39]), ['alpha', 'beta', 'gamma'], 'names survive')
+  t.alike(cloned[39], { alpha: 39, beta: 'b', gamma: true }, 'values survive')
+})
+
+test('encode graph with more than 252 references', (t) => {
+  const value = Array.from({ length: 300 }, (_, i) => ({ i }))
+
+  const serialized = serialize(value)
+
+  const state = { start: 0, end: 0, buffer: null }
+  structuredClone.preencode(state, serialized)
+
+  const size = state.end
+
+  const buffer = c.encode(structuredClone, serialized)
+
+  t.is(buffer.byteLength, size, 'encodes exactly as many bytes as reserved')
+
+  const decoded = deserialize(c.decode(structuredClone, buffer))
+
+  t.is(decoded.length, 300, 'decodes every entry')
+  t.alike(decoded[299], { i: 299 }, 'last entry survives')
+})
+
+test('decode rejects an unknown property key kind', (t) => {
+  const serialized = serialize({ a: 1 })
+
+  const buffer = c.encode(structuredClone, serialized)
+
+  const state = { start: 0, end: buffer.byteLength, buffer }
+  c.uint.decode(state) // Version
+  c.uint.decode(state) // Flags
+  c.uint.decode(state) // Type
+  c.uint.decode(state) // Id
+  c.uint.decode(state) // Property count
+
+  buffer[state.start] = 0
+
+  try {
+    c.decode(structuredClone, buffer)
+    t.fail('expected decode to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_PROPERTY_KEY', 'throws for an unknown kind')
+  }
+})
+
+test('decode rejects an unknown array layout', (t) => {
+  const buffer = c.encode(structuredClone, serialize([1, 2]))
+
+  const state = { start: 0, end: buffer.byteLength, buffer }
+  c.uint.decode(state)
+  c.uint.decode(state)
+  c.uint.decode(state)
+  c.uint.decode(state)
+  c.uint.decode(state)
+
+  buffer[state.start] = 0
+
+  try {
+    c.decode(structuredClone, buffer)
+    t.fail('expected decode to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_ARRAY_LAYOUT', 'throws for an unknown layout')
+  }
+})
+
+test('decode rejects a dangling property name reference', (t) => {
+  const buffer = c.encode(structuredClone, serialize({ a: 1 }))
+
+  const state = { start: 0, end: buffer.byteLength, buffer }
+  c.uint.decode(state)
+  c.uint.decode(state)
+  c.uint.decode(state)
+  c.uint.decode(state)
+  c.uint.decode(state)
+
+  buffer[state.start] = structuredClone.constants.type.key.NAME_REFERENCE
+
+  try {
+    c.decode(structuredClone, buffer)
+    t.fail('expected decode to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_PROPERTY_KEY', 'throws for a dangling reference')
+  }
+})
+
+test('decode rejects a mismatched abi version', (t) => {
+  const buffer = c.encode(structuredClone, serialize({ a: 1 }))
+
+  buffer[0] = 0
+
+  try {
+    c.decode(structuredClone, buffer)
+    t.fail('expected decode to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_VERSION', 'throws for an older version')
   }
 })

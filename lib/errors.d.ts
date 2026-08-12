@@ -29,6 +29,16 @@ declare class DataCloneError extends Error {
    * @returns A new `DataCloneError` with code `INVALID_INTERFACE`.
    */
   static INVALID_INTERFACE(msg: string): DataCloneError
+  /**
+   * @param msg - The error message.
+   * @returns A new `DataCloneError` with code `INVALID_PROPERTY_KEY`.
+   */
+  static INVALID_PROPERTY_KEY(msg: string): DataCloneError
+  /**
+   * @param msg - The error message.
+   * @returns A new `DataCloneError` with code `INVALID_ARRAY_LAYOUT`.
+   */
+  static INVALID_ARRAY_LAYOUT(msg: string): DataCloneError
 }
 
 export = DataCloneError
