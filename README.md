@@ -108,12 +108,8 @@ constants = {
     EXTERNAL,
     SERIALIZABLE,
     TRANSFERABLE,
-    typedarray: {
-      /* ... */
-    },
-    error: {
-      /* ... */
-    }
+    typedarray: {/* ... */},
+    error: {/* ... */}
   }
 }
 ```
