@@ -132,13 +132,14 @@ interface SerializedArray {
   type: typeof constants.type.ARRAY
   id: number
   length: number
-  properties: { key: string; value: SerializedValue }[]
+  elements: SerializedValue[] | null
+  properties: { key: string | number; value: SerializedValue }[]
 }
 
 interface SerializedObject {
   type: typeof constants.type.OBJECT
   id: number
-  properties: { key: string; value: SerializedValue }[]
+  properties: { key: string | number; value: SerializedValue }[]
 }
 
 interface SerializedReference {

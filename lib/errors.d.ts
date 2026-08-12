@@ -5,6 +5,8 @@ declare class DataCloneError extends Error {
   static ALREADY_TRANSFERRED(msg: string): DataCloneError
   static INVALID_REFERENCE(msg: string): DataCloneError
   static INVALID_INTERFACE(msg: string): DataCloneError
+  static INVALID_PROPERTY_KEY(msg: string): DataCloneError
+  static INVALID_ARRAY_LAYOUT(msg: string): DataCloneError
 }
 
 export = DataCloneError

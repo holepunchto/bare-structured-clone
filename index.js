@@ -8,10 +8,20 @@ const binding = require('./binding')
 
 const t = constants.type
 
+const kNames = Symbol('bare.structured-clone.names')
+
+const kSerialize = Symbol.for('bare.serialize')
+const kDeserialize = Symbol.for('bare.deserialize')
+const kDetach = Symbol.for('bare.detach')
+const kAttach = Symbol.for('bare.attach')
+const kInterface = Symbol.for('bare.interface')
+
 module.exports = exports = function structuredClone(value, opts = {}) {
-  return exports.deserializeWithTransfer(
-    exports.serializeWithTransfer(value, opts.transfer, opts.interfaces),
-    opts.interfaces
+  const interfaces = new InterfaceMap(opts.interfaces || [])
+
+  return deserializeValueWithTransfer(
+    serializeValueWithTransfer(value, opts.transfer || [], interfaces),
+    interfaces
   )
 }
 
@@ -43,11 +53,11 @@ exports.constants = constants
 exports.errors = errors
 
 exports.symbols = {
-  serialize: Symbol.for('bare.serialize'),
-  deserialize: Symbol.for('bare.deserialize'),
-  detach: Symbol.for('bare.detach'),
-  attach: Symbol.for('bare.attach'),
-  interface: Symbol.for('bare.interface')
+  serialize: kSerialize,
+  deserialize: kDeserialize,
+  detach: kDetach,
+  attach: kAttach,
+  interface: kInterface
 }
 
 exports.Serializable = class Serializable {
@@ -70,6 +80,14 @@ exports.Transferable = class Transferable {
 
 class InterfaceMap {
   constructor(interfaces) {
+    // Most values carry no custom interfaces at all, so the backing maps are
+    // only allocated once there is something to put in them.
+    this.ids = null
+    this.keys = null
+    this.interfaces = null
+
+    if (interfaces.length === 0) return
+
     this.ids = new WeakMap()
     this.keys = new Map()
     this.interfaces = new Map()
@@ -81,7 +99,7 @@ class InterfaceMap {
 
       this.ids.set(constructor, id)
 
-      const key = constructor[exports.symbols.interface]
+      const key = constructor[kInterface]
 
       if (key !== undefined) this.keys.set(key, id)
 
@@ -90,6 +108,12 @@ class InterfaceMap {
   }
 
   id(constructor) {
+    if (this.ids === null) {
+      throw errors.INVALID_INTERFACE(
+        `Class '${constructor.name}' is not registered as a serializable or transferable interface`
+      )
+    }
+
     let id = this.ids.get(constructor)
 
     if (id) return id
@@ -100,7 +124,7 @@ class InterfaceMap {
     // interface key that the class declares for itself, a shared symbol such
     // as one from the global registry, so that any such copy with a matching
     // API resolves to the registered interface.
-    const key = constructor[exports.symbols.interface]
+    const key = constructor[kInterface]
 
     if (key !== undefined) {
       id = this.keys.get(key)
@@ -118,7 +142,7 @@ class InterfaceMap {
   }
 
   get(id) {
-    const constructor = this.interfaces.get(id)
+    const constructor = this.interfaces === null ? undefined : this.interfaces.get(id)
 
     if (!constructor) {
       throw errors.INVALID_INTERFACE(`Interface with ID '${id}' was not found`)
@@ -130,39 +154,77 @@ class InterfaceMap {
 
 class ReferenceMap {
   constructor() {
-    this.ids = new WeakMap()
+    // Serializing a primitive never records a reference, so defer allocating
+    // the backing map until the first object is seen.
+    this.ids = null
     this.nextId = 1
   }
 
   id(object) {
-    let id = this.ids.get(object)
-    if (id) return id
+    if (this.ids === null) this.ids = new WeakMap()
+    else {
+      const id = this.ids.get(object)
+      if (id) return id
+    }
 
-    id = this.nextId++
+    const id = this.nextId++
     this.ids.set(object, id)
 
     return id
   }
 
   has(object) {
-    return this.ids.has(object)
+    return this.ids !== null && this.ids.has(object)
   }
 }
 
+// The largest value an array index may take, above which a numeric key is an
+// ordinary named property.
+const MAX_INDEX = 0xfffffffe
+
+// Returns the index a key denotes, or -1 if the key names an ordinary property.
+function asIndex(key) {
+  // Names outnumber indices on ordinary objects, so rule them out on the first
+  // character before going through a numeric conversion. This also means the
+  // conversion below can never produce a negative number.
+  const code = key.charCodeAt(0)
+
+  if (code < 0x30 || code > 0x39) return -1
+
+  const index = +key
+
+  if (!Number.isInteger(index) || index > MAX_INDEX) return -1
+  if ('' + index !== key) return -1
+
+  return index
+}
+
 function serializeValue(value, forStorage, interfaces, references) {
+  switch (typeof value) {
+    case 'undefined':
+      return { type: t.UNDEFINED }
+    case 'boolean':
+      return { type: value ? t.TRUE : t.FALSE }
+    case 'number':
+      return { type: t.NUMBER, value }
+    case 'bigint':
+      return { type: t.BIGINT, value }
+    case 'string':
+      return serializeString(value)
+    case 'symbol':
+      return serializeSymbol(value)
+    case 'function':
+      return serializeFunction(value)
+  }
+
+  if (value === null) return { type: t.NULL }
+
   const type = getType(value)
 
-  if (type.isUndefined()) return { type: t.UNDEFINED }
-  if (type.isNull()) return { type: t.NULL }
-  if (type.isBoolean()) return { type: value ? t.TRUE : t.FALSE }
-  if (type.isNumber()) return { type: t.NUMBER, value }
-  if (type.isBigInt()) return { type: t.BIGINT, value }
-  if (type.isString()) return serializeString(value)
-  if (type.isSymbol()) return serializeSymbol(value)
   if (type.isObject()) {
     return serializeReferenceable(type, value, forStorage, interfaces, references)
   }
-  if (type.isFunction()) return serializeFunction(value)
+
   if (type.isExternal()) return serializeExternal(value, forStorage, references)
 }
 
@@ -207,7 +269,7 @@ function serializeReferenceable(type, value, forStorage, interfaces, references)
     throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
   }
 
-  const serialize = value[Symbol.for('bare.serialize')]
+  const serialize = value[kSerialize]
 
   if (serialize) return serializeSerializable(value, serialize, forStorage, interfaces, references)
 
@@ -373,7 +435,7 @@ function serializeTypedArray(type, value, forStorage, interfaces, references) {
 function serializeDataView(value, forStorage, interfaces, references) {
   return {
     type: t.DATAVIEW,
-    id: references.id(references),
+    id: references.id(value),
     buffer: serializeValue(value.buffer, forStorage, interfaces, references),
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
@@ -382,15 +444,15 @@ function serializeDataView(value, forStorage, interfaces, references) {
 
 function serializeMap(value, forStorage, interfaces, references) {
   const id = references.id(value)
-  const data = []
+  const data = new Array(value.size)
+
+  let i = 0
 
   for (const entry of value) {
-    const [key, value] = entry
-
-    data.push({
-      key: serializeValue(key, forStorage, interfaces, references),
-      value: serializeValue(value, forStorage, interfaces, references)
-    })
+    data[i++] = {
+      key: serializeValue(entry[0], forStorage, interfaces, references),
+      value: serializeValue(entry[1], forStorage, interfaces, references)
+    }
   }
 
   return { type: t.MAP, id, data }
@@ -398,10 +460,12 @@ function serializeMap(value, forStorage, interfaces, references) {
 
 function serializeSet(value, forStorage, interfaces, references) {
   const id = references.id(value)
-  const data = []
+  const data = new Array(value.size)
+
+  let i = 0
 
   for (const entry of value) {
-    data.push(serializeValue(entry, forStorage, interfaces, references))
+    data[i++] = serializeValue(entry, forStorage, interfaces, references)
   }
 
   return { type: t.SET, id, data }
@@ -409,34 +473,69 @@ function serializeSet(value, forStorage, interfaces, references) {
 
 function serializeArray(value, forStorage, interfaces, references) {
   const id = references.id(value)
-  const properties = []
 
-  for (const entry of Object.entries(value)) {
-    const [key, value] = entry
+  const keys = Object.keys(value)
+  const length = value.length
 
-    properties.push({
-      key,
-      value: serializeValue(value, forStorage, interfaces, references)
-    })
+  // Indices enumerate ahead of names and in ascending order, so if the last one
+  // falls where a dense array would put it then every index in range is present.
+  // This also means the indices are known without converting any key.
+  const dense = keys.length >= length && (length === 0 || keys[length - 1] === '' + (length - 1))
+
+  let elements = null
+  let from = 0
+
+  if (dense) {
+    elements = new Array(length)
+
+    for (; from < length; from++) {
+      elements[from] = serializeValue(value[from], forStorage, interfaces, references)
+    }
   }
 
-  return { type: t.ARRAY, id, length: value.length, properties }
+  const properties = new Array(keys.length - from)
+
+  for (let i = from; i < keys.length; i++) {
+    const key = keys[i]
+    const index = asIndex(key)
+
+    properties[i - from] = {
+      key: index === -1 ? key : index,
+      value: serializeValue(value[key], forStorage, interfaces, references)
+    }
+  }
+
+  return { type: t.ARRAY, id, length, elements, properties }
 }
 
 function serializeObject(value, forStorage, interfaces, references) {
   const id = references.id(value)
-  const properties = []
 
-  for (const entry of Object.entries(value)) {
-    const [key, value] = entry
+  return {
+    type: t.OBJECT,
+    id,
+    properties: serializeProperties(value, forStorage, interfaces, references)
+  }
+}
 
-    properties.push({
-      key,
-      value: serializeValue(value, forStorage, interfaces, references)
-    })
+function serializeProperties(value, forStorage, interfaces, references) {
+  const keys = Object.keys(value)
+  const properties = new Array(keys.length)
+
+  for (let i = 0, n = keys.length; i < n; i++) {
+    const key = keys[i]
+
+    // An ordinary object may be keyed by index too, and those keys travel as
+    // numbers just as an array's do.
+    const index = asIndex(key)
+
+    properties[i] = {
+      key: index === -1 ? key : index,
+      value: serializeValue(value[key], forStorage, interfaces, references)
+    }
   }
 
-  return { type: t.OBJECT, id, properties }
+  return properties
 }
 
 function serializeURL(value, references) {
@@ -494,7 +593,7 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
 
       references.id(transferable)
     } else {
-      const detach = transferable[exports.symbols.detach]
+      const detach = transferable[kDetach]
 
       if (detach) {
         if (transferable.detached) {
@@ -534,12 +633,12 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
 
       let transfer
 
-      if (value.resizable) {
+      if (transferable.resizable) {
         transfer = {
           type: t.RESIZABLEARRAYBUFFER,
           id,
           backingStore,
-          maxByteLength: value.maxByteLength
+          maxByteLength: transferable.maxByteLength
         }
       } else {
         transfer = { type: t.ARRAYBUFFER, id, backingStore }
@@ -555,7 +654,7 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
         )
       }
 
-      const detach = transferable[exports.symbols.detach]
+      const detach = transferable[kDetach]
 
       const transfer = {
         type: t.TRANSFERABLE,
@@ -585,6 +684,7 @@ function deserializeValue(serialized, interfaces, references) {
       return false
 
     case t.NUMBER:
+    case t.INTEGER:
     case t.BIGINT:
     case t.STRING:
       return serialized.value
@@ -604,7 +704,7 @@ function deserializeValue(serialized, interfaces, references) {
       const options = {}
 
       if ('cause' in serialized) {
-        options.case = deserializeValue(serialized.cause, interfaces, references)
+        options.cause = deserializeValue(serialized.cause, interfaces, references)
       }
 
       switch (serialized.name) {
@@ -744,7 +844,8 @@ function deserializeValue(serialized, interfaces, references) {
       return value
 
     case t.URL:
-      return new URL(serialized.href)
+      value = new URL(serialized.href)
+      break
 
     case t.BUFFER:
       value = Buffer.from(
@@ -757,7 +858,7 @@ function deserializeValue(serialized, interfaces, references) {
     case t.SERIALIZABLE: {
       const constructor = interfaces.get(serialized.interface)
 
-      const deserialize = constructor[exports.symbols.deserialize]
+      const deserialize = constructor[kDeserialize]
 
       value = deserialize.call(
         constructor,
@@ -785,7 +886,21 @@ function deserializeValue(serialized, interfaces, references) {
       }
       break
 
-    case t.ARRAY:
+    case t.ARRAY: {
+      const elements = serialized.elements
+
+      if (elements !== null) {
+        for (let i = 0, n = elements.length; i < n; i++) {
+          value[i] = deserializeValue(elements[i], interfaces, references)
+        }
+      }
+
+      for (const entry of serialized.properties) {
+        value[entry.key] = deserializeValue(entry.value, interfaces, references)
+      }
+      break
+    }
+
     case t.OBJECT:
       for (const entry of serialized.properties) {
         value[entry.key] = deserializeValue(entry.value, interfaces, references)
@@ -809,7 +924,7 @@ function deserializeValueWithTransfer(serialized, interfaces) {
       case t.TRANSFERABLE: {
         const constructor = interfaces.get(transfer.interface)
 
-        const attach = constructor[exports.symbols.attach]
+        const attach = constructor[kAttach]
 
         references.set(
           transfer.id,
@@ -843,24 +958,153 @@ const header = {
   }
 }
 
+const propertyKey = {
+  preencode(state, m) {
+    if (typeof m === 'number') {
+      c.uint.preencode(state, t.key.INDEX)
+      c.uint.preencode(state, m)
+      return
+    }
+
+    let names = state[kNames]
+
+    if (names === null) names = state[kNames] = new Map()
+    else {
+      const reference = names.get(m)
+
+      if (reference !== undefined) {
+        c.uint.preencode(state, t.key.NAME_REFERENCE)
+        c.uint.preencode(state, reference)
+        return
+      }
+    }
+
+    names.set(m, names.size)
+
+    c.uint.preencode(state, t.key.NAME)
+    c.string.preencode(state, m)
+  },
+  encode(state, m) {
+    if (typeof m === 'number') {
+      c.uint.encode(state, t.key.INDEX)
+      c.uint.encode(state, m)
+      return
+    }
+
+    let names = state[kNames]
+
+    if (names === null) names = state[kNames] = new Map()
+    else {
+      const reference = names.get(m)
+
+      if (reference !== undefined) {
+        c.uint.encode(state, t.key.NAME_REFERENCE)
+        c.uint.encode(state, reference)
+        return
+      }
+    }
+
+    names.set(m, names.size)
+
+    c.uint.encode(state, t.key.NAME)
+    c.string.encode(state, m)
+  },
+  decode(state) {
+    const kind = c.uint.decode(state)
+
+    switch (kind) {
+      case t.key.INDEX:
+        return c.uint.decode(state)
+
+      case t.key.NAME: {
+        const name = c.string.decode(state)
+
+        if (state[kNames] === null) state[kNames] = [name]
+        else state[kNames].push(name)
+
+        return name
+      }
+
+      case t.key.NAME_REFERENCE: {
+        const reference = c.uint.decode(state)
+
+        if (state[kNames] === null || reference >= state[kNames].length) {
+          throw errors.INVALID_PROPERTY_KEY(`Property name with ID '${reference}' was not found`)
+        }
+
+        return state[kNames][reference]
+      }
+
+      default:
+        throw errors.INVALID_PROPERTY_KEY(`Unknown property key kind '${kind}'`)
+    }
+  }
+}
+
 const property = {
   preencode(state, m) {
-    c.string.preencode(state, m.key)
+    propertyKey.preencode(state, m.key)
     value.preencode(state, m.value)
   },
   encode(state, m) {
-    c.string.encode(state, m.key)
+    propertyKey.encode(state, m.key)
     value.encode(state, m.value)
   },
   decode(state) {
     return {
-      key: c.string.decode(state),
+      key: propertyKey.decode(state),
       value: value.decode(state)
     }
   }
 }
 
 const properties = c.array(property)
+
+const arrayBody = {
+  preencode(state, m) {
+    if (m.elements === null) {
+      c.uint.preencode(state, t.array.SPARSE)
+    } else {
+      c.uint.preencode(state, t.array.DENSE)
+
+      for (let i = 0, n = m.elements.length; i < n; i++) {
+        value.preencode(state, m.elements[i])
+      }
+    }
+
+    properties.preencode(state, m.properties)
+  },
+  encode(state, m) {
+    if (m.elements === null) {
+      c.uint.encode(state, t.array.SPARSE)
+    } else {
+      c.uint.encode(state, t.array.DENSE)
+
+      for (let i = 0, n = m.elements.length; i < n; i++) {
+        value.encode(state, m.elements[i])
+      }
+    }
+
+    properties.encode(state, m.properties)
+  },
+  decode(state, length) {
+    const layout = c.uint.decode(state)
+
+    if (layout === t.array.SPARSE) {
+      return { elements: null, properties: properties.decode(state) }
+    }
+
+    if (layout !== t.array.DENSE) {
+      throw errors.INVALID_ARRAY_LAYOUT(`Unknown array layout '${layout}'`)
+    }
+
+    const elements = new Array(length)
+
+    for (let i = 0; i < length; i++) elements[i] = value.decode(state)
+
+    return { elements, properties: properties.decode(state) }
+  }
+}
 
 const entry = {
   preencode(state, m) {
@@ -949,11 +1193,29 @@ const transfer = {
 
 const transfers = c.array(transfer)
 
+function typeOf(m) {
+  if (m.type !== t.NUMBER) return m.type
+
+  const value = m.value
+
+  if (!Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) {
+    return t.NUMBER
+  }
+
+  // Negative zero has to stay a double, as its integer form cannot be told
+  // apart from positive zero.
+  if (value === 0 && 1 / value < 0) return t.NUMBER
+
+  return t.INTEGER
+}
+
 const value = {
   preencode(state, m) {
-    c.uint.preencode(state, m.type)
+    const type = typeOf(m)
 
-    switch (m.type) {
+    c.uint.preencode(state, type)
+
+    switch (type) {
       case t.UNDEFINED:
       case t.NULL:
       case t.TRUE:
@@ -961,6 +1223,8 @@ const value = {
         return
       case t.NUMBER:
         return c.float64.preencode(state, m.value)
+      case t.INTEGER:
+        return c.int.preencode(state, m.value)
       case t.BIGINT:
         return c.bigint.preencode(state, m.value)
       case t.STRING:
@@ -973,7 +1237,7 @@ const value = {
         return
     }
 
-    c.uint.preencode(state, m.type)
+    c.uint.preencode(state, m.id)
 
     switch (m.type) {
       case t.DATE:
@@ -1025,7 +1289,7 @@ const value = {
         break
       case t.ARRAY:
         c.uint.preencode(state, m.length)
-        properties.preencode(state, m.properties)
+        arrayBody.preencode(state, m)
         break
       case t.OBJECT:
         properties.preencode(state, m.properties)
@@ -1047,9 +1311,11 @@ const value = {
     }
   },
   encode(state, m) {
-    c.uint.encode(state, m.type)
+    const type = typeOf(m)
 
-    switch (m.type) {
+    c.uint.encode(state, type)
+
+    switch (type) {
       case t.UNDEFINED:
       case t.NULL:
       case t.TRUE:
@@ -1057,6 +1323,8 @@ const value = {
         return
       case t.NUMBER:
         return c.float64.encode(state, m.value)
+      case t.INTEGER:
+        return c.int.encode(state, m.value)
       case t.BIGINT:
         return c.bigint.encode(state, m.value)
       case t.STRING:
@@ -1121,7 +1389,7 @@ const value = {
         break
       case t.ARRAY:
         c.uint.encode(state, m.length)
-        properties.encode(state, m.properties)
+        arrayBody.encode(state, m)
         break
       case t.OBJECT:
         properties.encode(state, m.properties)
@@ -1157,6 +1425,11 @@ const value = {
         return {
           type,
           value: c.float64.decode(state)
+        }
+      case t.INTEGER:
+        return {
+          type: t.NUMBER,
+          value: c.int.decode(state)
         }
       case t.BIGINT:
         return {
@@ -1274,13 +1547,12 @@ const value = {
           id,
           data: values.decode(state)
         }
-      case t.ARRAY:
-        return {
-          type,
-          id,
-          length: c.uint.decode(state),
-          properties: properties.decode(state)
-        }
+      case t.ARRAY: {
+        const length = c.uint.decode(state)
+        const { elements, properties } = arrayBody.decode(state, length)
+
+        return { type, id, length, elements, properties }
+      }
       case t.OBJECT:
         return {
           type,
@@ -1320,16 +1592,19 @@ const value = {
 const values = c.array(value)
 
 exports.preencode = function preencode(state, m) {
+  state[kNames] = null
   header.preencode(state)
   value.preencode(state, m)
 }
 
 exports.encode = function encode(state, m) {
+  state[kNames] = null
   header.encode(state)
   value.encode(state, m)
 }
 
 exports.decode = function decode(state) {
+  state[kNames] = null
   header.decode(state)
   return value.decode(state)
 }
