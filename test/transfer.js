@@ -77,6 +77,32 @@ test('transfer resizable arraybuffer', (t) => {
   })
 })
 
+test('transfer arraybuffer reads resizability from the buffer', (t) => {
+  const arrayBuffer = new ArrayBuffer(8)
+
+  const serialized = serializeWithTransfer({ resizable: true, maxByteLength: 999, arrayBuffer }, [
+    arrayBuffer
+  ])
+
+  t.is(serialized.transfers[0].type, type.ARRAYBUFFER, 'tagged as a plain arraybuffer')
+  t.absent('maxByteLength' in serialized.transfers[0], 'no max byte length recorded')
+})
+
+test('transfer resizable arraybuffer stays resizable', (t) => {
+  const arrayBuffer = new ArrayBuffer(8, { maxByteLength: 64 })
+
+  const serialized = serializeWithTransfer({ arrayBuffer }, [arrayBuffer])
+
+  t.is(serialized.transfers[0].type, type.RESIZABLEARRAYBUFFER, 'tagged as a resizable arraybuffer')
+  t.is(serialized.transfers[0].maxByteLength, 64, 'records the max byte length')
+
+  const cloned = deserializeWithTransfer(
+    c.decode(structuredClone, c.encode(structuredClone, serialized))
+  )
+
+  t.is(cloned.arrayBuffer.byteLength, 8, 'byte length survives')
+})
+
 test('transfer arraybuffer in array', (t) => {
   const from = [new ArrayBuffer(4)]
   const to = [new ArrayBuffer(4)]
@@ -94,12 +120,8 @@ test('transfer arraybuffer in array', (t) => {
         type: type.ARRAY,
         id: 2,
         length: 1,
-        properties: [
-          {
-            key: '0',
-            value: { type: type.REFERENCE, id: 1 }
-          }
-        ]
+        elements: [{ type: type.REFERENCE, id: 1 }],
+        properties: []
       }
     }
   })
@@ -130,6 +152,23 @@ test('transfer arraybuffer in object', (t) => {
       }
     }
   })
+})
+
+test('transfer shares property names', (t) => {
+  const arrayBuffer = new ArrayBuffer(4)
+
+  const serialized = serializeWithTransfer(
+    { shared: { alpha: 1 }, other: { alpha: 2 }, arrayBuffer },
+    [arrayBuffer]
+  )
+
+  const cloned = deserializeWithTransfer(
+    c.decode(structuredClone, c.encode(structuredClone, serialized))
+  )
+
+  t.alike(cloned.shared, { alpha: 1 }, 'first name survives')
+  t.alike(cloned.other, { alpha: 2 }, 'repeated name survives')
+  t.is(cloned.arrayBuffer.byteLength, 4, 'transfer survives')
 })
 
 test('transfer transferable', (t) => {
