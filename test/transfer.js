@@ -279,3 +279,23 @@ test('transfer transferable matched by interface key', (t) => {
     }
   })
 })
+
+test('transfer arraybuffer cannot be claimed twice', (t) => {
+  const buffer = new ArrayBuffer(8)
+
+  const serialized = serializeWithTransfer({ buffer }, [buffer])
+
+  t.is(deserializeWithTransfer(serialized).buffer.byteLength, 8, 'the first claim succeeds')
+
+  t.exception(() => deserializeWithTransfer(serialized), 'the second is rejected')
+})
+
+test('sharedarraybuffer cannot be claimed twice', (t) => {
+  const buffer = new SharedArrayBuffer(8)
+
+  const serialized = structuredClone.serialize(buffer)
+
+  t.is(structuredClone.deserialize(serialized).byteLength, 8, 'the first claim succeeds')
+
+  t.exception(() => structuredClone.deserialize(serialized), 'the second is rejected')
+})
