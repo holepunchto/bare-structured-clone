@@ -27,7 +27,13 @@ module.exports = exports = function structuredClone(value, opts = {}) {
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserialize
 exports.serialize = function serialize(value, forStorage = false, interfaces = []) {
-  return serializeValue(value, forStorage, new InterfaceMap(interfaces), new ReferenceMap())
+  const references = new ReferenceMap()
+
+  const serialized = serializeValue(value, forStorage, new InterfaceMap(interfaces), references)
+
+  finalizeBuffers(references)
+
+  return serialized
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializewithtransfer
@@ -158,6 +164,28 @@ class ReferenceMap {
     // the backing map until the first object is seen.
     this.ids = null
     this.nextId = 1
+
+    // Which arraybuffers are viewed by the value, and which the value carries
+    // in its own right. Both are only needed once the whole value has been
+    // walked, to decide whether each buffer can be shared or has to be copied
+    // out of.
+    this.views = null
+    this.buffers = null
+  }
+
+  view(buffer, node) {
+    if (this.views === null) this.views = new Map()
+
+    const nodes = this.views.get(buffer)
+
+    if (nodes === undefined) this.views.set(buffer, [node])
+    else nodes.push(node)
+  }
+
+  buffer(buffer) {
+    if (this.buffers === null) this.buffers = new Set()
+
+    this.buffers.add(buffer)
   }
 
   id(object) {
@@ -197,6 +225,74 @@ function asIndex(key) {
   if ('' + index !== key) return -1
 
   return index
+}
+
+// Sharing the whole of an arraybuffer between the views onto it is what keeps
+// those views aliased on the far side of a clone. It is only safe to do when
+// the views cover the buffer between them; a view onto part of a larger buffer
+// would otherwise take everything around it along too, which for a buffer drawn
+// from a pool is unrelated data belonging to somebody else. So where the views
+// leave any of the buffer uncovered, each one is given a copy of just the bytes
+// it spans.
+//
+// Aliasing between such views is given up in the process, which is the price of
+// not carrying the gaps between them. Buffers the value carries in their own
+// right are always shared whole, as nothing about them is being leaked, and so
+// are resizable and shared buffers, whose semantics a copy would not preserve.
+function finalizeBuffers(references) {
+  const views = references.views
+
+  if (views === null) return
+
+  const buffers = references.buffers
+
+  for (const [buffer, nodes] of views) {
+    if (buffers !== null && buffers.has(buffer)) continue
+
+    // Only a buffer this serialization owns the sole node for can be rewritten.
+    // Anything else, a transferred buffer in particular, is already accounted
+    // for somewhere the views cannot see.
+    let owner = null
+
+    for (const node of nodes) {
+      if (node.buffer.type === t.ARRAYBUFFER) owner = node.buffer
+    }
+
+    if (owner === null || owner.data !== buffer) continue
+
+    if (covers(nodes, buffer.byteLength)) continue
+
+    for (const node of nodes) {
+      const data = new ArrayBuffer(node.byteLength)
+
+      new Uint8Array(data).set(new Uint8Array(buffer, node.byteOffset, node.byteLength))
+
+      node.buffer =
+        node.buffer === owner
+          ? Object.assign(owner, { data })
+          : { type: t.ARRAYBUFFER, id: references.id(data), owned: false, data }
+
+      node.byteOffset = 0
+    }
+  }
+}
+
+// Whether the views leave no part of a buffer of `byteLength` bytes uncovered.
+function covers(nodes, byteLength) {
+  if (byteLength === 0) return true
+
+  const ranges = nodes
+    .map((node) => [node.byteOffset, node.byteOffset + node.byteLength])
+    .sort((a, b) => a[0] - b[0])
+
+  let end = 0
+
+  for (const [from, to] of ranges) {
+    if (from > end) return false
+    if (to > end) end = to
+  }
+
+  return end >= byteLength
 }
 
 function serializeValue(value, forStorage, interfaces, references) {
@@ -241,7 +337,11 @@ function serializeFunction(value) {
 }
 
 function serializeReferenceable(type, value, forStorage, interfaces, references) {
-  if (references.has(value)) return serializeReference(value, references)
+  if (references.has(value)) {
+    if (type.isArrayBuffer()) references.buffer(value)
+
+    return serializeReference(value, references)
+  }
 
   if (isURL(value)) return serializeURL(value, references)
   if (isBuffer(value)) return serializeBuffer(value, forStorage, interfaces, references)
@@ -252,7 +352,10 @@ function serializeReferenceable(type, value, forStorage, interfaces, references)
   if (type.isError()) return serializeError(value, forStorage, interfaces, references)
   if (type.isMap()) return serializeMap(value, forStorage, interfaces, references)
   if (type.isSet()) return serializeSet(value, forStorage, interfaces, references)
-  if (type.isArrayBuffer()) return serializeArrayBuffer(value, references)
+  if (type.isArrayBuffer()) {
+    references.buffer(value)
+    return serializeArrayBuffer(value, references)
+  }
   if (type.isSharedArrayBuffer()) return serializeSharedArrayBuffer(value, forStorage, references)
   if (type.isTypedArray()) {
     return serializeTypedArray(type, value, forStorage, interfaces, references)
@@ -342,6 +445,21 @@ function serializeError(value, forStorage, interfaces, references) {
   return serialized
 }
 
+function serializeViewBuffer(view, value, forStorage, interfaces, references) {
+  let serialized
+
+  if (references.has(value)) serialized = serializeReference(value, references)
+  else if (getType(value).isSharedArrayBuffer()) {
+    serialized = serializeSharedArrayBuffer(value, forStorage, references)
+  } else {
+    serialized = serializeArrayBuffer(value, references)
+  }
+
+  references.view(value, view)
+
+  return serialized
+}
+
 function serializeArrayBuffer(value, references) {
   if (value.detached) {
     throw errors.UNSERIALIZABLE_TYPE('Detached ArrayBuffer cannot be serialized')
@@ -421,25 +539,45 @@ function serializeTypedArray(type, value, forStorage, interfaces, references) {
     view = t.typedarray.FLOAT64ARRAY
   }
 
-  return {
+  const serialized = {
     type: t.TYPEDARRAY,
     id: references.id(value),
     view,
-    buffer: serializeValue(value.buffer, forStorage, interfaces, references),
+    buffer: null,
     byteOffset: value.byteOffset,
     byteLength: value.byteLength,
     length: value.length
   }
+
+  serialized.buffer = serializeViewBuffer(
+    serialized,
+    value.buffer,
+    forStorage,
+    interfaces,
+    references
+  )
+
+  return serialized
 }
 
 function serializeDataView(value, forStorage, interfaces, references) {
-  return {
+  const serialized = {
     type: t.DATAVIEW,
     id: references.id(value),
-    buffer: serializeValue(value.buffer, forStorage, interfaces, references),
+    buffer: null,
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
   }
+
+  serialized.buffer = serializeViewBuffer(
+    serialized,
+    value.buffer,
+    forStorage,
+    interfaces,
+    references
+  )
+
+  return serialized
 }
 
 function serializeMap(value, forStorage, interfaces, references) {
@@ -547,13 +685,23 @@ function serializeBuffer(value, forStorage, interfaces, references) {
     throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
   }
 
-  return {
+  const serialized = {
     type: t.BUFFER,
     id: references.id(value),
-    buffer: serializeValue(value.buffer, forStorage, interfaces, references),
+    buffer: null,
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
   }
+
+  serialized.buffer = serializeViewBuffer(
+    serialized,
+    value.buffer,
+    forStorage,
+    interfaces,
+    references
+  )
+
+  return serialized
 }
 
 function serializeExternal(value, forStorage) {
@@ -667,6 +815,8 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
     }
   }
 
+  finalizeBuffers(references)
+
   return { type: t.TRANSFER, transfers, value: serialized }
 }
 
@@ -701,19 +851,11 @@ function deserializeValue(serialized, interfaces, references) {
       break
 
     case t.ERROR: {
-      const options = {}
-
-      if ('cause' in serialized) {
-        options.cause = deserializeValue(serialized.cause, interfaces, references)
-      }
+      const options = 'cause' in serialized ? { cause: undefined } : undefined
 
       switch (serialized.name) {
         case t.error.AGGREGATE:
-          value = new AggregateError(
-            serialized.errors.map((err) => deserializeValue(err, interfaces, references)),
-            serialized.message,
-            options
-          )
+          value = new AggregateError([], serialized.message, options)
           break
         case t.error.EVAL:
           value = new EvalError(serialized.message, options)
@@ -730,11 +872,12 @@ function deserializeValue(serialized, interfaces, references) {
         case t.error.TYPE:
           value = new TypeError(serialized.message, options)
           break
+        case t.error.URI:
+          value = new URIError(serialized.message, options)
+          break
         default:
           value = new Error(serialized.message, options)
       }
-
-      value.stack = deserializeValue(serialized.stack, interfaces, references)
 
       break
     }
@@ -764,9 +907,6 @@ function deserializeValue(serialized, interfaces, references) {
     case t.SHAREDARRAYBUFFER:
     case t.GROWABLESHAREDARRAYBUFFER:
       value = binding.createSharedArrayBuffer(serialized.backingStore)
-
-      Buffer.from(serialized.backingStore).fill(0)
-
       break
 
     case t.TYPEDARRAY: {
@@ -871,6 +1011,20 @@ function deserializeValue(serialized, interfaces, references) {
   references.set(serialized.id, value)
 
   switch (serialized.type) {
+    case t.ERROR:
+      value.stack = deserializeValue(serialized.stack, interfaces, references)
+
+      if ('cause' in serialized) {
+        value.cause = deserializeValue(serialized.cause, interfaces, references)
+      }
+
+      if (serialized.name === t.error.AGGREGATE) {
+        for (const err of serialized.errors) {
+          value.errors.push(deserializeValue(err, interfaces, references))
+        }
+      }
+      break
+
     case t.MAP:
       for (const entry of serialized.data) {
         value.set(
@@ -1248,7 +1402,7 @@ const value = {
         c.string.preencode(state, m.flags)
         break
       case t.ERROR:
-        c.uint.preencode(state, 0) // Flags
+        c.uint.preencode(state, 'cause' in m ? 1 : 0) // Flags
         c.uint.preencode(state, m.name)
         c.string.preencode(state, m.message)
         value.preencode(state, m.stack)

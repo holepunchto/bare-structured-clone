@@ -98,11 +98,18 @@ interface SerializedGrowableSharedArrayBuffer {
   maxByteLength: number
 }
 
+type SerializedViewBuffer =
+  | SerializedArrayBuffer
+  | SerializedResizableArrayBuffer
+  | SerializedSharedArrayBuffer
+  | SerializedGrowableSharedArrayBuffer
+  | SerializedReference
+
 interface SerializedTypedArray {
   type: typeof constants.type.TYPEDARRAY
   id: number
   view: number
-  buffer: SerializedArrayBuffer
+  buffer: SerializedViewBuffer
   byteOffset: number
   byteLength: number
   length: number
@@ -111,7 +118,7 @@ interface SerializedTypedArray {
 interface SerializedDataView {
   type: typeof constants.type.DATAVIEW
   id: number
-  buffer: SerializedArrayBuffer
+  buffer: SerializedViewBuffer
   byteOffset: number
   byteLength: number
 }
@@ -156,7 +163,7 @@ interface SerializedURL {
 interface SerializedBuffer {
   type: typeof constants.type.BUFFER
   id: number
-  buffer: SerializedArrayBuffer
+  buffer: SerializedViewBuffer
   byteOffset: number
   byteLength: number
 }
