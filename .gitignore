@@ -1,4 +1,5 @@
 node_modules
 build
 prebuilds
+coverage
 package-lock.json

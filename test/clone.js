@@ -178,6 +178,55 @@ test('clone error restores its cause', (t) => {
   t.is(cloned.cause && cloned.cause.message, 'inner', 'cause carries its message')
 })
 
+test('clone error keeps its constructor', (t) => {
+  for (const constructor of [
+    Error,
+    EvalError,
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
+    URIError
+  ]) {
+    const cloned = structuredClone(new constructor('err'))
+
+    t.is(cloned.constructor, constructor, `${constructor.name} survives`)
+  }
+})
+
+test('clone error referring to itself', (t) => {
+  const err = new Error('err')
+  err.cause = err
+
+  const cloned = structuredClone(err)
+
+  t.is(cloned.cause, cloned, 'the cause is the error itself')
+  t.absent(
+    Object.propertyIsEnumerable.call(cloned, 'cause'),
+    'the cause stays out of the way of the own keys'
+  )
+})
+
+test('clone aggregate error referring to itself', (t) => {
+  const err = new AggregateError([], 'err')
+  err.errors.push(err)
+
+  const cloned = structuredClone(err)
+
+  t.is(cloned.errors.length, 1, 'the error is aggregated')
+  t.is(cloned.errors[0], cloned, 'and is the error itself')
+})
+
+test('clone errors referring to each other', (t) => {
+  const outer = new Error('outer')
+  const inner = new Error('inner', { cause: outer })
+  outer.cause = inner
+
+  const cloned = structuredClone(outer)
+
+  t.is(cloned.cause.cause, cloned, 'the cycle is restored')
+})
+
 test('clone type error', (t) => {
   const err = new TypeError('err')
   err.stack = `${err.name}: ${err.message}\n    at file:///foo/bar.js`
@@ -861,6 +910,20 @@ test('clone buffer the value carries itself is kept whole', (t) => {
   const view = new Uint8Array(backing, 4, 4)
 
   const cloned = structuredClone({ backing, view })
+
+  t.is(cloned.backing.byteLength, 16, 'the buffer is carried whole')
+  t.is(cloned.view.buffer, cloned.backing, 'the view still points at it')
+  t.is(cloned.view.byteOffset, 4, 'at its original offset')
+})
+
+test('clone buffer the value carries itself after a view onto it', (t) => {
+  // The buffer is carried in its own right no matter which of the two the walk
+  // happens to reach first.
+  const backing = new ArrayBuffer(16)
+
+  const view = new Uint8Array(backing, 4, 4)
+
+  const cloned = structuredClone({ view, backing })
 
   t.is(cloned.backing.byteLength, 16, 'the buffer is carried whole')
   t.is(cloned.view.buffer, cloned.backing, 'the view still points at it')

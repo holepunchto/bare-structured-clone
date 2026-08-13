@@ -337,7 +337,11 @@ function serializeFunction(value) {
 }
 
 function serializeReferenceable(type, value, forStorage, interfaces, references) {
-  if (references.has(value)) return serializeReference(value, references)
+  if (references.has(value)) {
+    if (type.isArrayBuffer()) references.buffer(value)
+
+    return serializeReference(value, references)
+  }
 
   if (isURL(value)) return serializeURL(value, references)
   if (isBuffer(value)) return serializeBuffer(value, forStorage, interfaces, references)
@@ -847,19 +851,11 @@ function deserializeValue(serialized, interfaces, references) {
       break
 
     case t.ERROR: {
-      const options = {}
-
-      if ('cause' in serialized) {
-        options.cause = deserializeValue(serialized.cause, interfaces, references)
-      }
+      const options = 'cause' in serialized ? { cause: undefined } : undefined
 
       switch (serialized.name) {
         case t.error.AGGREGATE:
-          value = new AggregateError(
-            serialized.errors.map((err) => deserializeValue(err, interfaces, references)),
-            serialized.message,
-            options
-          )
+          value = new AggregateError([], serialized.message, options)
           break
         case t.error.EVAL:
           value = new EvalError(serialized.message, options)
@@ -876,11 +872,12 @@ function deserializeValue(serialized, interfaces, references) {
         case t.error.TYPE:
           value = new TypeError(serialized.message, options)
           break
+        case t.error.URI:
+          value = new URIError(serialized.message, options)
+          break
         default:
           value = new Error(serialized.message, options)
       }
-
-      value.stack = deserializeValue(serialized.stack, interfaces, references)
 
       break
     }
@@ -910,9 +907,6 @@ function deserializeValue(serialized, interfaces, references) {
     case t.SHAREDARRAYBUFFER:
     case t.GROWABLESHAREDARRAYBUFFER:
       value = binding.createSharedArrayBuffer(serialized.backingStore)
-
-      Buffer.from(serialized.backingStore).fill(0)
-
       break
 
     case t.TYPEDARRAY: {
@@ -1017,6 +1011,20 @@ function deserializeValue(serialized, interfaces, references) {
   references.set(serialized.id, value)
 
   switch (serialized.type) {
+    case t.ERROR:
+      value.stack = deserializeValue(serialized.stack, interfaces, references)
+
+      if ('cause' in serialized) {
+        value.cause = deserializeValue(serialized.cause, interfaces, references)
+      }
+
+      if (serialized.name === t.error.AGGREGATE) {
+        for (const err of serialized.errors) {
+          value.errors.push(deserializeValue(err, interfaces, references))
+        }
+      }
+      break
+
     case t.MAP:
       for (const entry of serialized.data) {
         value.set(
@@ -1394,7 +1402,7 @@ const value = {
         c.string.preencode(state, m.flags)
         break
       case t.ERROR:
-        c.uint.preencode(state, 0) // Flags
+        c.uint.preencode(state, 'cause' in m ? 1 : 0) // Flags
         c.uint.preencode(state, m.name)
         c.string.preencode(state, m.message)
         value.preencode(state, m.stack)
