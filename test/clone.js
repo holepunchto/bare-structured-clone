@@ -773,18 +773,110 @@ test('clone url repeated in a graph', (t) => {
 test('clone buffer', (t) => {
   const buf = Buffer.from([1, 2, 3, 4])
 
-  clone(t, buf, {
-    type: type.BUFFER,
-    id: 1,
-    buffer: {
-      type: type.ARRAYBUFFER,
-      id: 2,
-      owned: false,
-      data: buf.buffer
-    },
-    byteOffset: buf.byteOffset,
-    byteLength: 4
+  // A buffer may be a view into a larger pooled arraybuffer, in which case only
+  // the bytes it spans are carried and it starts at the beginning of them.
+  clone(t, buf, (serialized) => {
+    t.is(serialized.buffer.data.byteLength, 4, 'carries only its own bytes')
+
+    return {
+      type: type.BUFFER,
+      id: 1,
+      buffer: {
+        type: type.ARRAYBUFFER,
+        id: 2,
+        owned: false,
+        data: serialized.buffer.data
+      },
+      byteOffset: 0,
+      byteLength: 4
+    }
   })
+})
+
+test('clone view onto a larger buffer copies out its bytes', (t) => {
+  // The bytes outside the view belong to whatever else shares the buffer, and a
+  // pool is shared with unrelated data, so they must not travel with the clone.
+  const backing = new ArrayBuffer(64)
+
+  new Uint8Array(backing).fill(0xaa)
+
+  const view = new Uint8Array(backing, 16, 4)
+
+  view.set([1, 2, 3, 4])
+
+  const serialized = serialize(view)
+
+  t.is(serialized.buffer.data.byteLength, 4, 'carries only the viewed bytes')
+  t.is(serialized.byteOffset, 0, 'the view starts at the beginning of them')
+  t.absent(
+    Array.from(new Uint8Array(serialized.buffer.data)).includes(0xaa),
+    'none of the surrounding bytes travel with it'
+  )
+
+  const cloned = deserialize(c.decode(structuredClone, c.encode(structuredClone, serialized)))
+
+  t.alike(Array.from(cloned), [1, 2, 3, 4], 'the viewed bytes survive')
+  t.is(cloned.buffer.byteLength, 4, 'the clone owns a buffer of its own size')
+})
+
+test('clone views covering a buffer stay aliased', (t) => {
+  // Between them these two cover the buffer, so nothing is hidden by sharing it
+  // and the aliasing is worth keeping.
+  const backing = new ArrayBuffer(8)
+
+  const a = new Uint8Array(backing, 0, 4)
+  const b = new Uint8Array(backing, 4, 4)
+
+  const serialized = serialize({ a, b })
+
+  t.is(serialized.properties[0].value.buffer.type, type.ARRAYBUFFER, 'the first carries the buffer')
+  t.is(serialized.properties[1].value.buffer.type, type.REFERENCE, 'the second refers to it')
+
+  const cloned = structuredClone({ a, b })
+
+  t.is(cloned.a.buffer, cloned.b.buffer, 'both views share one buffer')
+  t.is(cloned.a.buffer.byteLength, 8, 'the whole buffer is carried')
+})
+
+test('clone views leaving a gap are copied apart', (t) => {
+  const backing = new ArrayBuffer(12)
+
+  new Uint8Array(backing).fill(0xbb)
+
+  const a = new Uint8Array(backing, 0, 4)
+  const b = new Uint8Array(backing, 8, 4)
+
+  const cloned = structuredClone({ a, b })
+
+  t.not(cloned.a.buffer, cloned.b.buffer, 'each view gets a buffer of its own')
+  t.is(cloned.a.buffer.byteLength, 4, 'sized to the first view')
+  t.is(cloned.b.buffer.byteLength, 4, 'sized to the second view')
+})
+
+test('clone buffer the value carries itself is kept whole', (t) => {
+  // The arraybuffer is part of the message in its own right, so nothing is being
+  // hidden and the view stays aliased to it.
+  const backing = new ArrayBuffer(16)
+
+  const view = new Uint8Array(backing, 4, 4)
+
+  const cloned = structuredClone({ backing, view })
+
+  t.is(cloned.backing.byteLength, 16, 'the buffer is carried whole')
+  t.is(cloned.view.buffer, cloned.backing, 'the view still points at it')
+  t.is(cloned.view.byteOffset, 4, 'at its original offset')
+})
+
+test('clone dataview onto a larger buffer copies out its bytes', (t) => {
+  const backing = new ArrayBuffer(32)
+
+  new Uint8Array(backing).fill(0xcc)
+
+  const cloned = structuredClone(new DataView(backing, 8, 4))
+
+  t.is(cloned.byteLength, 4, 'byte length survives')
+  t.is(cloned.byteOffset, 0, 'rebased to the beginning')
+  t.is(cloned.buffer.byteLength, 4, 'the clone owns a buffer of its own size')
 })
 
 test('clone buffer, unpooled', (t) => {
