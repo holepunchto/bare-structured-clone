@@ -376,6 +376,15 @@ function serializeReferenceable(type, value, forStorage, interfaces, references)
 
   if (serialize) return serializeSerializable(value, serialize, forStorage, interfaces, references)
 
+  // A value that can only travel by being transferred was given a reference
+  // before the walk began, so reaching it here means it was left out of the
+  // transfer list.
+  if (value[kDetach]) {
+    throw errors.UNSERIALIZABLE_TYPE(
+      `'${value.constructor.name}' can only be serialized by transferring it`
+    )
+  }
+
   return serializeObject(value, forStorage, interfaces, references)
 }
 
@@ -949,6 +958,8 @@ function deserializeValue(serialized, interfaces, references) {
         case t.typedarray.FLOAT64ARRAY:
           value = new Float64Array(buffer, serialized.byteOffset, serialized.length)
           break
+        default:
+          throw errors.INVALID_VIEW(`Unknown typed array view '${serialized.view}'`)
       }
 
       break
@@ -1006,6 +1017,15 @@ function deserializeValue(serialized, interfaces, references) {
       )
       break
     }
+
+    default:
+      throw errors.INVALID_TYPE(`Unknown type '${serialized.type}'`)
+  }
+
+  // Every object is numbered once, so an ID that has already been claimed is a
+  // sign that the value has been tampered with or has come apart in transit.
+  if (references.has(serialized.id)) {
+    throw errors.INVALID_REFERENCE(`Object with ID '${serialized.id}' was already seen`)
   }
 
   references.set(serialized.id, value)
@@ -1341,6 +1361,8 @@ const transfer = {
           interface: c.uint.decode(state),
           value: value.decode(state)
         }
+      default:
+        throw errors.INVALID_TYPE(`Unknown transfer type '${type}'`)
     }
   }
 }
@@ -1395,7 +1417,7 @@ const value = {
 
     switch (m.type) {
       case t.DATE:
-        c.int.preencode(state, m.value)
+        c.float64.preencode(state, m.value)
         break
       case t.REGEXP:
         c.string.preencode(state, m.source)
@@ -1495,7 +1517,7 @@ const value = {
 
     switch (m.type) {
       case t.DATE:
-        c.int.encode(state, m.value)
+        c.float64.encode(state, m.value)
         break
       case t.REGEXP:
         c.string.encode(state, m.source)
@@ -1615,7 +1637,7 @@ const value = {
         return {
           type,
           id,
-          value: c.int.decode(state)
+          value: c.float64.decode(state)
         }
       case t.REGEXP:
         return {
@@ -1739,6 +1761,8 @@ const value = {
           interface: c.uint.decode(state),
           value: value.decode(state)
         }
+      default:
+        throw errors.INVALID_TYPE(`Unknown type '${type}'`)
     }
   }
 }

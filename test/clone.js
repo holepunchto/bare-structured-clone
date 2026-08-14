@@ -115,6 +115,83 @@ test('clone string', (t) => {
   clone(t, 'hello world', { type: type.STRING, value: 'hello world' })
 })
 
+test('clone date with an invalid time', (t) => {
+  const cloned = structuredClone(new Date(NaN))
+
+  t.ok(cloned instanceof Date, 'is still a date')
+  t.ok(Number.isNaN(cloned.getTime()), 'and is still invalid')
+})
+
+test('clone date at the ends of its range', (t) => {
+  for (const time of [8640000000000000, -8640000000000000]) {
+    const cloned = structuredClone(new Date(time))
+
+    t.is(cloned.getTime(), time, `${time} survives`)
+  }
+})
+
+test('decode rejects an unknown type', (t) => {
+  const buffer = c.encode(structuredClone, serialize({ a: 1 }))
+
+  const state = { start: 0, end: buffer.byteLength, buffer }
+  c.uint.decode(state) // Version
+  c.uint.decode(state) // Flags
+
+  buffer[state.start] = 200
+
+  try {
+    c.decode(structuredClone, buffer)
+    t.fail('expected decode to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_TYPE', 'throws for an unknown type')
+  }
+})
+
+test('deserialize rejects an unknown typed array view', (t) => {
+  try {
+    deserialize({
+      type: type.TYPEDARRAY,
+      id: 1,
+      view: 99,
+      buffer: { type: type.ARRAYBUFFER, id: 2, owned: true, data: new ArrayBuffer(4) },
+      byteOffset: 0,
+      byteLength: 4,
+      length: 4
+    })
+    t.fail('expected deserialize to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_VIEW', 'throws for an unknown view')
+  }
+})
+
+test('deserialize rejects a repeated id', (t) => {
+  try {
+    deserialize({
+      type: type.OBJECT,
+      id: 1,
+      properties: [
+        { key: 'a', value: { type: type.OBJECT, id: 1, properties: [] } },
+        { key: 'b', value: { type: type.REFERENCE, id: 1 } }
+      ]
+    })
+    t.fail('expected deserialize to throw')
+  } catch (err) {
+    t.is(err.code, 'INVALID_REFERENCE', 'throws for an id that was already claimed')
+  }
+})
+
+test('deserialize rejects a malformed external pointer', (t) => {
+  // The handle is too short to hold a pointer, so it must not be read through.
+  t.exception(() => deserialize({ type: type.EXTERNAL, pointer: new ArrayBuffer(0) }))
+  t.exception(() => deserialize({ type: type.EXTERNAL, pointer: new ArrayBuffer(4) }))
+})
+
+test('deserialize rejects a malformed shared backing store', (t) => {
+  t.exception(() =>
+    deserialize({ type: type.SHAREDARRAYBUFFER, id: 1, backingStore: new ArrayBuffer(0) })
+  )
+})
+
 test('clone date', (t) => {
   clone(t, new Date(123456789), { type: type.DATE, id: 1, value: 123456789 })
   clone(t, new Date(-123456789), { type: type.DATE, id: 1, value: -123456789 })
