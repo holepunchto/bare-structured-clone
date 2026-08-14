@@ -7,6 +7,8 @@ declare class DataCloneError extends Error {
   static INVALID_INTERFACE(msg: string): DataCloneError
   static INVALID_PROPERTY_KEY(msg: string): DataCloneError
   static INVALID_ARRAY_LAYOUT(msg: string): DataCloneError
+  static INVALID_TYPE(msg: string): DataCloneError
+  static INVALID_VIEW(msg: string): DataCloneError
 }
 
 export = DataCloneError

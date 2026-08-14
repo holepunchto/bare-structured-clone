@@ -71,8 +71,16 @@ bare_structured_clone_create_arraybuffer (js_env_t *env, js_callback_info_t *inf
   assert(argc == 1);
 
   js_arraybuffer_backing_store_t **backing_store;
-  err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, NULL);
+  size_t len;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, &len);
   assert(err == 0);
+
+  if (len < sizeof(uintptr_t)) {
+    err = js_throw_error(env, NULL, "ArrayBuffer backing store is malformed");
+    assert(err == 0);
+
+    return NULL;
+  }
 
   if (*backing_store == NULL) {
     err = js_throw_error(env, NULL, "ArrayBuffer backing store is unset");
@@ -106,8 +114,16 @@ bare_structured_clone_create_sharedarraybuffer (js_env_t *env, js_callback_info_
   assert(argc == 1);
 
   js_arraybuffer_backing_store_t **backing_store;
-  err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, NULL);
+  size_t len;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &backing_store, &len);
   assert(err == 0);
+
+  if (len < sizeof(uintptr_t)) {
+    err = js_throw_error(env, NULL, "SharedArrayBuffer backing store is malformed");
+    assert(err == 0);
+
+    return NULL;
+  }
 
   if (*backing_store == NULL) {
     err = js_throw_error(env, NULL, "SharedArrayBuffer backing store is unset");
@@ -186,8 +202,16 @@ bare_structured_clone_create_external (js_env_t *env, js_callback_info_t *info) 
   assert(argc == 1);
 
   void **data;
-  err = js_get_arraybuffer_info(env, argv[0], (void **) &data, NULL);
+  size_t len;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &data, &len);
   assert(err == 0);
+
+  if (len < sizeof(uintptr_t)) {
+    err = js_throw_error(env, NULL, "External pointer is malformed");
+    assert(err == 0);
+
+    return NULL;
+  }
 
   js_value_t *result;
   err = js_create_external(env, *data, NULL, NULL, &result);

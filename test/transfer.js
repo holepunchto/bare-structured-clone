@@ -299,3 +299,97 @@ test('sharedarraybuffer cannot be claimed twice', (t) => {
 
   t.exception(() => structuredClone.deserialize(serialized), 'the second is rejected')
 })
+
+test('transfer transferable left out of the transfer list', (t) => {
+  // A value that can only travel by being transferred must not be quietly
+  // copied when it was not handed over.
+  class Foo {
+    constructor() {
+      this.detached = false
+    }
+
+    [symbols.detach]() {
+      this.detached = true
+    }
+
+    static [symbols.attach]() {
+      return new Foo()
+    }
+  }
+
+  const foo = new Foo()
+
+  try {
+    serializeWithTransfer({ foo }, [], [Foo])
+    t.fail('expected serialization to throw')
+  } catch (err) {
+    t.is(err.code, 'UNSERIALIZABLE_TYPE', 'throws rather than copying')
+  }
+
+  t.absent(foo.detached, 'the value is left alone')
+})
+
+test('transfer transferable that is also serializable', (t) => {
+  // Being serializable is a way through in its own right, so leaving such a
+  // value out of the transfer list serializes it instead of turning it away.
+  class Foo {
+    constructor(n) {
+      this.n = n
+      this.detached = false
+    }
+
+    [symbols.serialize]() {
+      return this.n
+    }
+
+    static [symbols.deserialize](n) {
+      return new Foo(n)
+    }
+
+    [symbols.detach]() {
+      this.detached = true
+      return this.n
+    }
+
+    static [symbols.attach](n) {
+      return new Foo(n)
+    }
+  }
+
+  const foo = new Foo(1234)
+
+  const cloned = structuredClone({ foo }, { interfaces: [Foo] })
+
+  t.ok(cloned.foo instanceof Foo, 'is serialized')
+  t.is(cloned.foo.n, 1234, 'carrying its value')
+  t.absent(foo.detached, 'without being detached')
+})
+
+test('transfer detached transferable left out of the transfer list', (t) => {
+  class Foo {
+    constructor() {
+      this.detached = false
+    }
+
+    [symbols.detach]() {
+      this.detached = true
+    }
+
+    static [symbols.attach]() {
+      return new Foo()
+    }
+  }
+
+  const foo = new Foo()
+
+  structuredClone({}, { transfer: [foo], interfaces: [Foo] })
+
+  t.ok(foo.detached, 'the value is detached')
+
+  try {
+    structuredClone({ foo }, { interfaces: [Foo] })
+    t.fail('expected serialization to throw')
+  } catch (err) {
+    t.is(err.code, 'UNSERIALIZABLE_TYPE', 'throws rather than copying')
+  }
+})
