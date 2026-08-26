@@ -27,9 +27,7 @@ const copy = structuredClone({ hello: 'world' })
 
 ## API
 
-See the [`bare-structured-clone` reference][reference].
-
-[reference]: https://docs.pears.com/reference/bare/modules/bare-structured-clone
+See the [`bare-structured-clone` reference](https://docs.pears.com/reference/bare/modules/bare-structured-clone).
 
 ## License
 
