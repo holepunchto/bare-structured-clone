@@ -186,7 +186,7 @@ test('threads may come and go', (t) => {
     const result = new SharedArrayBuffer(4)
     const status = new Int32Array(result)
 
-    new Bare.Thread('worker.js', source, { data: result }).join()
+    new Bare.Thread('worker.js', { source, data: result }).join()
 
     t.is(status[0], 1, 'thread ' + i + ' transferred cleanly')
   }
