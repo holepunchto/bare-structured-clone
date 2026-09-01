@@ -2,8 +2,9 @@ const test = require('brittle')
 const c = require('compact-encoding')
 const structuredClone = require('..')
 const binding = require('../binding')
+const { pathToFileURL } = require('bare-url')
 
-const ADDON = require.addon.resolve('..', __filename)
+const ADDON = pathToFileURL(require.addon.resolve('..', __filename)).href
 
 const {
   constants: { type },
@@ -144,8 +145,8 @@ test('serialized handles are not addresses', (t) => {
 
 test('the addon can be instantiated more than once', (t) => {
   // The initialiser runs for every `new Addon()`, not once per thread.
-  const first = new Bare.Addon(new URL('file://' + ADDON)).exports
-  const second = new Bare.Addon(new URL('file://' + ADDON)).exports
+  const first = new Bare.Addon(new URL(ADDON)).exports
+  const second = new Bare.Addon(new URL(ADDON)).exports
 
   const buffer = new ArrayBuffer(64)
 
@@ -163,10 +164,13 @@ test('the addon can be instantiated more than once', (t) => {
 
 test('threads may come and go', (t) => {
   // The registry outlives any one thread, and the addon need not have been
-  // loaded from the main thread first.
+  // loaded from the main thread first. Its URL travels as data rather than
+  // being interpolated into the source.
   const source = `
-    const binding = new Bare.Addon(new URL('file://${ADDON}')).exports
-    const status = new Int32Array(Bare.Thread.self.data)
+    const { result, addon } = Bare.Thread.self.data
+
+    const binding = new Bare.Addon(new URL(addon)).exports
+    const status = new Int32Array(result)
 
     try {
       const buffer = new ArrayBuffer(64)
@@ -186,7 +190,7 @@ test('threads may come and go', (t) => {
     const result = new SharedArrayBuffer(4)
     const status = new Int32Array(result)
 
-    new Bare.Thread('worker.js', { source, data: result }).join()
+    new Bare.Thread('worker.js', { source, data: { result, addon: ADDON } }).join()
 
     t.is(status[0], 1, 'thread ' + i + ' transferred cleanly')
   }
