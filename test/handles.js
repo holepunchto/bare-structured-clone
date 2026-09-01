@@ -3,7 +3,7 @@ const c = require('compact-encoding')
 const structuredClone = require('..')
 const binding = require('../binding')
 
-const ADDON = require.addon.resolve(__dirname + '/..')
+const ADDON = require.addon.resolve('..', __filename)
 
 const {
   constants: { type },
