@@ -784,26 +784,34 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
         throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
       }
 
-      const backingStore = binding.getArrayBufferBackingStore(transferable)
+      const { resizable, maxByteLength } = transferable
 
       const id = references.id(transferable)
 
+      // Detaching an ArrayBuffer that does not allow it, such as the buffer
+      // backing a WebAssembly.Memory, is fatal a layer down. Moving it is the
+      // only way to ask, and moving it is what a transfer does regardless.
+      let moved
+
+      try {
+        moved = transferable.transfer()
+      } catch {
+        throw errors.UNTRANSFERABLE_TYPE('ArrayBuffer cannot be detached')
+      }
+
+      const backingStore = binding.getArrayBufferBackingStore(moved)
+
+      binding.detachArrayBuffer(moved)
+
       let transfer
 
-      if (transferable.resizable) {
-        transfer = {
-          type: t.RESIZABLEARRAYBUFFER,
-          id,
-          backingStore,
-          maxByteLength: transferable.maxByteLength
-        }
+      if (resizable) {
+        transfer = { type: t.RESIZABLEARRAYBUFFER, id, backingStore, maxByteLength }
       } else {
         transfer = { type: t.ARRAYBUFFER, id, backingStore }
       }
 
       transfers.push(transfer)
-
-      binding.detachArrayBuffer(transferable)
     } else {
       if (transferable.detached) {
         throw errors.UNTRANSFERABLE_TYPE(
@@ -1299,6 +1307,24 @@ const entry = {
 
 const entries = c.array(entry)
 
+// A handle names a registry entry only for as long as something can still
+// claim it. Writing one to the wire hands it to the receiving thread, which
+// may not claim it until well after this serialization is unreachable, so
+// ownership has to pass to the registry at that point.
+const handle = {
+  preencode(state, m) {
+    c.arraybuffer.preencode(state, m)
+  },
+  encode(state, m) {
+    binding.retainHandle(m)
+
+    c.arraybuffer.encode(state, m)
+  },
+  decode(state) {
+    return c.arraybuffer.decode(state)
+  }
+}
+
 const transfer = {
   preencode(state, m) {
     c.uint.preencode(state, m.type)
@@ -1306,10 +1332,10 @@ const transfer = {
 
     switch (m.type) {
       case t.ARRAYBUFFER:
-        c.arraybuffer.preencode(state, m.backingStore)
+        handle.preencode(state, m.backingStore)
         break
       case t.RESIZABLEARRAYBUFFER:
-        c.arraybuffer.preencode(state, m.backingStore)
+        handle.preencode(state, m.backingStore)
         c.uint.preencode(state, m.maxByteLength)
         break
       case t.TRANSFERABLE:
@@ -1324,10 +1350,10 @@ const transfer = {
 
     switch (m.type) {
       case t.ARRAYBUFFER:
-        c.arraybuffer.encode(state, m.backingStore)
+        handle.encode(state, m.backingStore)
         break
       case t.RESIZABLEARRAYBUFFER:
-        c.arraybuffer.encode(state, m.backingStore)
+        handle.encode(state, m.backingStore)
         c.uint.encode(state, m.maxByteLength)
         break
       case t.TRANSFERABLE:
@@ -1345,13 +1371,13 @@ const transfer = {
         return {
           type,
           id,
-          backingStore: c.arraybuffer.decode(state)
+          backingStore: handle.decode(state)
         }
       case t.RESIZABLEARRAYBUFFER:
         return {
           type,
           id,
-          backingStore: c.arraybuffer.decode(state),
+          backingStore: handle.decode(state),
           maxByteLength: c.uint.decode(state)
         }
       case t.TRANSFERABLE:
@@ -1406,7 +1432,7 @@ const value = {
       case t.STRING:
         return c.string.preencode(state, m.value)
       case t.EXTERNAL:
-        return c.arraybuffer.preencode(state, m.pointer)
+        return handle.preencode(state, m.pointer)
       case t.TRANSFER:
         transfers.preencode(state, m.transfers)
         value.preencode(state, m.value)
@@ -1439,10 +1465,10 @@ const value = {
         c.uint.preencode(state, m.maxByteLength)
         break
       case t.SHAREDARRAYBUFFER:
-        c.arraybuffer.preencode(state, m.backingStore)
+        handle.preencode(state, m.backingStore)
         break
       case t.GROWABLESHAREDARRAYBUFFER:
-        c.arraybuffer.preencode(state, m.backingStore)
+        handle.preencode(state, m.backingStore)
         c.uint.preencode(state, m.maxByteLength)
         break
       case t.TYPEDARRAY:
@@ -1506,7 +1532,7 @@ const value = {
       case t.STRING:
         return c.string.encode(state, m.value)
       case t.EXTERNAL:
-        return c.arraybuffer.encode(state, m.pointer)
+        return handle.encode(state, m.pointer)
       case t.TRANSFER:
         transfers.encode(state, m.transfers)
         value.encode(state, m.value)
@@ -1539,10 +1565,10 @@ const value = {
         c.uint.encode(state, m.maxByteLength)
         break
       case t.SHAREDARRAYBUFFER:
-        c.arraybuffer.encode(state, m.backingStore)
+        handle.encode(state, m.backingStore)
         break
       case t.GROWABLESHAREDARRAYBUFFER:
-        c.arraybuffer.encode(state, m.backingStore)
+        handle.encode(state, m.backingStore)
         c.uint.encode(state, m.maxByteLength)
         break
       case t.TYPEDARRAY:
@@ -1620,7 +1646,7 @@ const value = {
       case t.EXTERNAL:
         return {
           type,
-          pointer: c.arraybuffer.decode(state)
+          pointer: handle.decode(state)
         }
       case t.TRANSFER:
         return {
@@ -1684,13 +1710,13 @@ const value = {
         return {
           type,
           id,
-          backingStore: c.arraybuffer.decode(state)
+          backingStore: handle.decode(state)
         }
       case t.GROWABLESHAREDARRAYBUFFER:
         return {
           type,
           id,
-          backingStore: c.arraybuffer.decode(state),
+          backingStore: handle.decode(state),
           maxByteLength: c.uint.decode(state)
         }
       case t.TYPEDARRAY:
