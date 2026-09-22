@@ -8,6 +8,47 @@ const binding = require('./binding')
 
 const t = constants.type
 
+// The runtime types the serializer dispatches on. They are hoisted into their
+// own bindings so that the switches below compare against constants; a case
+// label written as a property load is compared one at a time instead.
+const js = getType.constants
+
+const JS_BASE = 0xff
+const JS_VIEW = 0xffff
+
+const JS_OBJECT = js.OBJECT
+const JS_EXTERNAL = js.EXTERNAL
+
+const JS_ARRAY = js.ARRAY
+const JS_DATE = js.DATE
+const JS_REGEXP = js.REGEXP
+const JS_ERROR = js.ERROR
+const JS_MAP = js.MAP
+const JS_SET = js.SET
+const JS_ARRAYBUFFER = js.ARRAYBUFFER
+const JS_SHAREDARRAYBUFFER = js.SHAREDARRAYBUFFER
+const JS_DATAVIEW = js.DATAVIEW
+const JS_TYPEDARRAY = js.TYPEDARRAY
+
+const JS_PROMISE = js.PROMISE
+const JS_PROXY = js.PROXY
+const JS_WEAK_MAP = js.WEAK_MAP
+const JS_WEAK_SET = js.WEAK_SET
+const JS_WEAK_REF = js.WEAK_REF
+
+const JS_INT8ARRAY = js.TYPEDARRAY | js.INT8ARRAY
+const JS_UINT8ARRAY = js.TYPEDARRAY | js.UINT8ARRAY
+const JS_UINT8CLAMPEDARRAY = js.TYPEDARRAY | js.UINT8CLAMPEDARRAY
+const JS_INT16ARRAY = js.TYPEDARRAY | js.INT16ARRAY
+const JS_UINT16ARRAY = js.TYPEDARRAY | js.UINT16ARRAY
+const JS_INT32ARRAY = js.TYPEDARRAY | js.INT32ARRAY
+const JS_UINT32ARRAY = js.TYPEDARRAY | js.UINT32ARRAY
+const JS_FLOAT16ARRAY = js.TYPEDARRAY | js.FLOAT16ARRAY
+const JS_FLOAT32ARRAY = js.TYPEDARRAY | js.FLOAT32ARRAY
+const JS_FLOAT64ARRAY = js.TYPEDARRAY | js.FLOAT64ARRAY
+const JS_BIGINT64ARRAY = js.TYPEDARRAY | js.BIGINT64ARRAY
+const JS_BIGUINT64ARRAY = js.TYPEDARRAY | js.BIGUINT64ARRAY
+
 const kNames = Symbol('bare.structured-clone.names')
 
 const kSerialize = Symbol.for('bare.serialize')
@@ -47,7 +88,7 @@ exports.serializeWithTransfer = function serializeWithTransfer(
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserialize
 exports.deserialize = function deserialize(serialized, interfaces = []) {
-  return deserializeValue(serialized, new InterfaceMap(interfaces), new Map())
+  return deserializeValue(serialized, new InterfaceMap(interfaces), [])
 }
 
 // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserializewithtransfer
@@ -188,21 +229,21 @@ class ReferenceMap {
     this.buffers.add(buffer)
   }
 
-  id(object) {
+  // The id the object already has, or `undefined` if it has not been seen. A
+  // caller that goes on to serialize the object passes the id from `add()`
+  // down to the serializer, so an object is only ever looked up once.
+  lookup(object) {
+    return this.ids === null ? undefined : this.ids.get(object)
+  }
+
+  add(object) {
     if (this.ids === null) this.ids = new WeakMap()
-    else {
-      const id = this.ids.get(object)
-      if (id) return id
-    }
 
     const id = this.nextId++
+
     this.ids.set(object, id)
 
     return id
-  }
-
-  has(object) {
-    return this.ids !== null && this.ids.has(object)
   }
 }
 
@@ -270,7 +311,7 @@ function finalizeBuffers(references) {
       node.buffer =
         node.buffer === owner
           ? Object.assign(owner, { data })
-          : { type: t.ARRAYBUFFER, id: references.id(data), owned: false, data }
+          : { type: t.ARRAYBUFFER, id: references.add(data), owned: false, data }
 
       node.byteOffset = 0
     }
@@ -315,13 +356,13 @@ function serializeValue(value, forStorage, interfaces, references) {
 
   if (value === null) return { type: t.NULL }
 
-  const type = getType(value)
+  const type = getType.of(value)
 
-  if (type.isObject()) {
+  if ((type & JS_BASE) === JS_OBJECT) {
     return serializeReferenceable(type, value, forStorage, interfaces, references)
   }
 
-  if (type.isExternal()) return serializeExternal(value, forStorage, references)
+  if (type === JS_EXTERNAL) return serializeExternal(value, forStorage, references)
 }
 
 function serializeString(value) {
@@ -337,44 +378,69 @@ function serializeFunction(value) {
 }
 
 function serializeReferenceable(type, value, forStorage, interfaces, references) {
-  if (references.has(value)) {
-    if (type.isArrayBuffer()) references.buffer(value)
+  const reference = references.lookup(value)
 
-    return serializeReference(value, references)
+  if (reference !== undefined) {
+    if (type === JS_ARRAYBUFFER) references.buffer(value)
+
+    return { type: t.REFERENCE, id: reference }
   }
 
-  if (isURL(value)) return serializeURL(value, references)
-  if (isBuffer(value)) return serializeBuffer(value, forStorage, interfaces, references)
-
-  if (type.isArray()) return serializeArray(value, forStorage, interfaces, references)
-  if (type.isDate()) return serializeDate(value, references)
-  if (type.isRegExp()) return serializeRegExp(value, references)
-  if (type.isError()) return serializeError(value, forStorage, interfaces, references)
-  if (type.isMap()) return serializeMap(value, forStorage, interfaces, references)
-  if (type.isSet()) return serializeSet(value, forStorage, interfaces, references)
-  if (type.isArrayBuffer()) {
-    references.buffer(value)
-    return serializeArrayBuffer(value, references)
+  // A value that can only be read by running its own code is turned away
+  // before anything reads a property from it, so that a proxy never sees the
+  // walk. The name comes from the type rather than from the value for the same
+  // reason.
+  switch (type) {
+    case JS_PROMISE:
+      throw errors.UNSERIALIZABLE_TYPE('Promise cannot be serialized')
+    case JS_PROXY:
+      throw errors.UNSERIALIZABLE_TYPE('Proxy cannot be serialized')
+    case JS_WEAK_MAP:
+      throw errors.UNSERIALIZABLE_TYPE('WeakMap cannot be serialized')
+    case JS_WEAK_SET:
+      throw errors.UNSERIALIZABLE_TYPE('WeakSet cannot be serialized')
+    case JS_WEAK_REF:
+      throw errors.UNSERIALIZABLE_TYPE('WeakRef cannot be serialized')
   }
-  if (type.isSharedArrayBuffer()) return serializeSharedArrayBuffer(value, forStorage, references)
-  if (type.isTypedArray()) {
-    return serializeTypedArray(type, value, forStorage, interfaces, references)
-  }
-  if (type.isDataView()) return serializeDataView(value, forStorage, interfaces, references)
 
-  if (
-    type.isPromise() ||
-    type.isProxy() ||
-    type.isWeakMap() ||
-    type.isWeakSet() ||
-    type.isWeakRef()
-  ) {
-    throw errors.UNSERIALIZABLE_TYPE(`${value.constructor.name} cannot be serialized`)
+  const id = references.add(value)
+
+  // Both are brand checks that an ordinary object may also pass, so they stay
+  // ahead of the dispatch on the runtime type.
+  if (isURL(value)) return serializeURL(value, id)
+  if (isBuffer(value)) return serializeBuffer(value, id, forStorage, interfaces, references)
+
+  switch (type) {
+    case JS_ARRAY:
+      return serializeArray(value, id, forStorage, interfaces, references)
+    case JS_DATE:
+      return serializeDate(value, id)
+    case JS_REGEXP:
+      return serializeRegExp(value, id)
+    case JS_ERROR:
+      return serializeError(value, id, forStorage, interfaces, references)
+    case JS_MAP:
+      return serializeMap(value, id, forStorage, interfaces, references)
+    case JS_SET:
+      return serializeSet(value, id, forStorage, interfaces, references)
+    case JS_ARRAYBUFFER:
+      references.buffer(value)
+      return serializeArrayBuffer(value, id)
+    case JS_SHAREDARRAYBUFFER:
+      return serializeSharedArrayBuffer(value, id, forStorage)
+    case JS_DATAVIEW:
+      return serializeDataView(value, id, forStorage, interfaces, references)
+  }
+
+  if ((type & JS_VIEW) === JS_TYPEDARRAY) {
+    return serializeTypedArray(type, value, id, forStorage, interfaces, references)
   }
 
   const serialize = value[kSerialize]
 
-  if (serialize) return serializeSerializable(value, serialize, forStorage, interfaces, references)
+  if (serialize) {
+    return serializeSerializable(value, id, serialize, forStorage, interfaces, references)
+  }
 
   // A value that can only travel by being transferred was given a reference
   // before the walk began, so reaching it here means it was left out of the
@@ -385,27 +451,23 @@ function serializeReferenceable(type, value, forStorage, interfaces, references)
     )
   }
 
-  return serializeObject(value, forStorage, interfaces, references)
+  return serializeObject(value, id, forStorage, interfaces, references)
 }
 
-function serializeReference(value, references) {
-  return { type: t.REFERENCE, id: references.id(value) }
+function serializeDate(value, id) {
+  return { type: t.DATE, id, value: value.getTime() }
 }
 
-function serializeDate(value, references) {
-  return { type: t.DATE, id: references.id(value), value: value.getTime() }
-}
-
-function serializeRegExp(value, references) {
+function serializeRegExp(value, id) {
   return {
     type: t.REGEXP,
-    id: references.id(value),
+    id,
     source: value.source,
     flags: value.flags
   }
 }
 
-function serializeError(value, forStorage, interfaces, references) {
+function serializeError(value, id, forStorage, interfaces, references) {
   let name = 0
 
   switch (value.name) {
@@ -434,7 +496,7 @@ function serializeError(value, forStorage, interfaces, references) {
 
   const serialized = {
     type: t.ERROR,
-    id: references.id(value),
+    id,
     name,
     message: value.message.toString(),
     stack: serializeValue(value.stack, forStorage, interfaces, references)
@@ -457,11 +519,13 @@ function serializeError(value, forStorage, interfaces, references) {
 function serializeViewBuffer(view, value, forStorage, interfaces, references) {
   let serialized
 
-  if (references.has(value)) serialized = serializeReference(value, references)
-  else if (getType(value).isSharedArrayBuffer()) {
-    serialized = serializeSharedArrayBuffer(value, forStorage, references)
+  const reference = references.lookup(value)
+
+  if (reference !== undefined) serialized = { type: t.REFERENCE, id: reference }
+  else if (getType.of(value) === JS_SHAREDARRAYBUFFER) {
+    serialized = serializeSharedArrayBuffer(value, references.add(value), forStorage)
   } else {
-    serialized = serializeArrayBuffer(value, references)
+    serialized = serializeArrayBuffer(value, references.add(value))
   }
 
   references.view(value, view)
@@ -469,12 +533,10 @@ function serializeViewBuffer(view, value, forStorage, interfaces, references) {
   return serialized
 }
 
-function serializeArrayBuffer(value, references) {
+function serializeArrayBuffer(value, id) {
   if (value.detached) {
     throw errors.UNSERIALIZABLE_TYPE('Detached ArrayBuffer cannot be serialized')
   }
-
-  const id = references.id(value)
 
   if (value.resizable) {
     return {
@@ -494,12 +556,10 @@ function serializeArrayBuffer(value, references) {
   }
 }
 
-function serializeSharedArrayBuffer(value, forStorage, references) {
+function serializeSharedArrayBuffer(value, id, forStorage) {
   if (forStorage) {
     throw errors.UNSERIALIZABLE_TYPE('SharedArrayBuffer cannot be serialized to storage')
   }
-
-  const id = references.id(value)
 
   const backingStore = binding.getSharedArrayBufferBackingStore(value)
 
@@ -519,38 +579,51 @@ function serializeSharedArrayBuffer(value, forStorage, references) {
   }
 }
 
-function serializeTypedArray(type, value, forStorage, interfaces, references) {
+function serializeTypedArray(type, value, id, forStorage, interfaces, references) {
   let view
 
-  if (type.isUint8Array()) {
-    view = t.typedarray.UINT8ARRAY
-  } else if (type.isUint8ClampedArray()) {
-    view = t.typedarray.UINT8CLAMPEDARRAY
-  } else if (type.isInt8Array()) {
-    view = t.typedarray.INT8ARRAY
-  } else if (type.isUint16Array()) {
-    view = t.typedarray.UINT16ARRAY
-  } else if (type.isInt16Array()) {
-    view = t.typedarray.INT16ARRAY
-  } else if (type.isUint32Array()) {
-    view = t.typedarray.UINT32ARRAY
-  } else if (type.isInt32Array()) {
-    view = t.typedarray.INT32ARRAY
-  } else if (type.isBigUint64Array()) {
-    view = t.typedarray.BIGUINT64ARRAY
-  } else if (type.isBigInt64Array()) {
-    view = t.typedarray.BIGINT64ARRAY
-  } else if (type.isFloat16Array()) {
-    view = t.typedarray.FLOAT16ARRAY
-  } else if (type.isFloat32Array()) {
-    view = t.typedarray.FLOAT32ARRAY
-  } else if (type.isFloat64Array()) {
-    view = t.typedarray.FLOAT64ARRAY
+  switch (type) {
+    case JS_UINT8ARRAY:
+      view = t.typedarray.UINT8ARRAY
+      break
+    case JS_UINT8CLAMPEDARRAY:
+      view = t.typedarray.UINT8CLAMPEDARRAY
+      break
+    case JS_INT8ARRAY:
+      view = t.typedarray.INT8ARRAY
+      break
+    case JS_UINT16ARRAY:
+      view = t.typedarray.UINT16ARRAY
+      break
+    case JS_INT16ARRAY:
+      view = t.typedarray.INT16ARRAY
+      break
+    case JS_UINT32ARRAY:
+      view = t.typedarray.UINT32ARRAY
+      break
+    case JS_INT32ARRAY:
+      view = t.typedarray.INT32ARRAY
+      break
+    case JS_BIGUINT64ARRAY:
+      view = t.typedarray.BIGUINT64ARRAY
+      break
+    case JS_BIGINT64ARRAY:
+      view = t.typedarray.BIGINT64ARRAY
+      break
+    case JS_FLOAT16ARRAY:
+      view = t.typedarray.FLOAT16ARRAY
+      break
+    case JS_FLOAT32ARRAY:
+      view = t.typedarray.FLOAT32ARRAY
+      break
+    case JS_FLOAT64ARRAY:
+      view = t.typedarray.FLOAT64ARRAY
+      break
   }
 
   const serialized = {
     type: t.TYPEDARRAY,
-    id: references.id(value),
+    id,
     view,
     buffer: null,
     byteOffset: value.byteOffset,
@@ -569,10 +642,10 @@ function serializeTypedArray(type, value, forStorage, interfaces, references) {
   return serialized
 }
 
-function serializeDataView(value, forStorage, interfaces, references) {
+function serializeDataView(value, id, forStorage, interfaces, references) {
   const serialized = {
     type: t.DATAVIEW,
-    id: references.id(value),
+    id,
     buffer: null,
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
@@ -589,8 +662,7 @@ function serializeDataView(value, forStorage, interfaces, references) {
   return serialized
 }
 
-function serializeMap(value, forStorage, interfaces, references) {
-  const id = references.id(value)
+function serializeMap(value, id, forStorage, interfaces, references) {
   const data = new Array(value.size)
 
   let i = 0
@@ -605,8 +677,7 @@ function serializeMap(value, forStorage, interfaces, references) {
   return { type: t.MAP, id, data }
 }
 
-function serializeSet(value, forStorage, interfaces, references) {
-  const id = references.id(value)
+function serializeSet(value, id, forStorage, interfaces, references) {
   const data = new Array(value.size)
 
   let i = 0
@@ -618,9 +689,7 @@ function serializeSet(value, forStorage, interfaces, references) {
   return { type: t.SET, id, data }
 }
 
-function serializeArray(value, forStorage, interfaces, references) {
-  const id = references.id(value)
-
+function serializeArray(value, id, forStorage, interfaces, references) {
   const keys = Object.keys(value)
   const length = value.length
 
@@ -655,9 +724,7 @@ function serializeArray(value, forStorage, interfaces, references) {
   return { type: t.ARRAY, id, length, elements, properties }
 }
 
-function serializeObject(value, forStorage, interfaces, references) {
-  const id = references.id(value)
-
+function serializeObject(value, id, forStorage, interfaces, references) {
   return {
     type: t.OBJECT,
     id,
@@ -685,18 +752,18 @@ function serializeProperties(value, forStorage, interfaces, references) {
   return properties
 }
 
-function serializeURL(value, references) {
-  return { type: t.URL, id: references.id(value), href: value.href }
+function serializeURL(value, id) {
+  return { type: t.URL, id, href: value.href }
 }
 
-function serializeBuffer(value, forStorage, interfaces, references) {
+function serializeBuffer(value, id, forStorage, interfaces, references) {
   if (value.detached) {
     throw errors.UNSERIALIZABLE_TYPE('Detached Buffer cannot be serialized')
   }
 
   const serialized = {
     type: t.BUFFER,
-    id: references.id(value),
+    id,
     buffer: null,
     byteOffset: value.byteOffset,
     byteLength: value.byteLength
@@ -724,10 +791,10 @@ function serializeExternal(value, forStorage) {
   }
 }
 
-function serializeSerializable(value, serializer, forStorage, interfaces, references) {
+function serializeSerializable(value, id, serializer, forStorage, interfaces, references) {
   return {
     type: t.SERIALIZABLE,
-    id: references.id(value),
+    id,
     interface: interfaces.id(value.constructor),
     value: serializeValue(serializer.call(value, forStorage), forStorage, interfaces, references)
   }
@@ -737,18 +804,16 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
   const references = new ReferenceMap()
 
   for (const transferable of transferList) {
-    const type = getType(transferable)
-
-    if (type.isArrayBuffer()) {
+    if (getType.of(transferable) === JS_ARRAYBUFFER) {
       if (transferable.detached) {
         throw errors.UNTRANSFERABLE_TYPE("Detached 'ArrayBuffer' cannot be transferred")
       }
 
-      if (references.has(transferable)) {
+      if (references.lookup(transferable) !== undefined) {
         throw errors.ALREADY_TRANSFERRED("'ArrayBuffer' has already been transferred")
       }
 
-      references.id(transferable)
+      references.add(transferable)
     } else {
       const detach = transferable[kDetach]
 
@@ -759,13 +824,13 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
           )
         }
 
-        if (references.has(transferable)) {
+        if (references.lookup(transferable) !== undefined) {
           throw errors.ALREADY_TRANSFERRED(
             `'${transferable.constructor.name}' has already been transferred`
           )
         }
 
-        references.id(transferable)
+        references.add(transferable)
       } else {
         throw errors.UNTRANSFERABLE_TYPE('Value cannot be transferred')
       }
@@ -777,16 +842,14 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
   const transfers = []
 
   for (const transferable of transferList) {
-    const type = getType(transferable)
-
-    if (type.isArrayBuffer()) {
+    if (getType.of(transferable) === JS_ARRAYBUFFER) {
       if (transferable.detached) {
         throw errors.UNTRANSFERABLE_TYPE('Detached ArrayBuffer cannot be transferred')
       }
 
       const { resizable, maxByteLength } = transferable
 
-      const id = references.id(transferable)
+      const id = references.lookup(transferable)
 
       // Detaching an ArrayBuffer that does not allow it, such as the buffer
       // backing a WebAssembly.Memory, is fatal a layer down. Moving it is the
@@ -823,7 +886,7 @@ function serializeValueWithTransfer(value, transferList, interfaces) {
 
       const transfer = {
         type: t.TRANSFERABLE,
-        id: references.id(transferable),
+        id: references.lookup(transferable),
         interface: interfaces.id(transferable.constructor),
         value: serializeValue(detach.call(transferable), false, interfaces, references)
       }
@@ -994,13 +1057,13 @@ function deserializeValue(serialized, interfaces, references) {
       value = {}
       break
 
-    case t.REFERENCE:
-      if (references.has(serialized.id)) value = references.get(serialized.id)
-      else {
-        throw errors.INVALID_REFERENCE(`Object with ID '${serialized.id}' was not found`)
-      }
+    case t.REFERENCE: {
+      const id = serialized.id
 
-      return value
+      if (id in references) return references[id]
+
+      throw errors.INVALID_REFERENCE(`Object with ID '${id}' was not found`)
+    }
 
     case t.URL:
       value = new URL(serialized.href)
@@ -1032,11 +1095,13 @@ function deserializeValue(serialized, interfaces, references) {
 
   // Every object is numbered once, so an ID that has already been claimed is a
   // sign that the value has been tampered with or has come apart in transit.
-  if (references.has(serialized.id)) {
+  // `in` rather than a lookup, so that claiming an ID is told apart from an
+  // interface that deserialized itself to `undefined`.
+  if (serialized.id in references) {
     throw errors.INVALID_REFERENCE(`Object with ID '${serialized.id}' was already seen`)
   }
 
-  references.set(serialized.id, value)
+  references[serialized.id] = value
 
   switch (serialized.type) {
     case t.ERROR:
@@ -1094,13 +1159,13 @@ function deserializeValue(serialized, interfaces, references) {
 }
 
 function deserializeValueWithTransfer(serialized, interfaces) {
-  const references = new Map()
+  const references = []
 
   for (const transfer of serialized.transfers) {
     switch (transfer.type) {
       case t.ARRAYBUFFER:
       case t.RESIZABLEARRAYBUFFER:
-        references.set(transfer.id, binding.createArrayBuffer(transfer.backingStore))
+        references[transfer.id] = binding.createArrayBuffer(transfer.backingStore)
         break
 
       case t.TRANSFERABLE: {
@@ -1108,9 +1173,9 @@ function deserializeValueWithTransfer(serialized, interfaces) {
 
         const attach = constructor[kAttach]
 
-        references.set(
-          transfer.id,
-          attach.call(constructor, deserializeValue(transfer.value, interfaces, references))
+        references[transfer.id] = attach.call(
+          constructor,
+          deserializeValue(transfer.value, interfaces, references)
         )
         break
       }
